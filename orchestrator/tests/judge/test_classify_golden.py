@@ -45,6 +45,7 @@ from .factories import (
     FILLED_US,
     RUN_ID,
     T0,
+    UNFILLED,
     att,
     default_body,
     make_attempts,
@@ -69,6 +70,7 @@ from .golden_cases import (
     REJECTED_BODY_FIELDS,
     TIMEOUT,
     ack,
+    adapter_ack,
     iso_at,
     not_ready,
     rej,
@@ -530,6 +532,68 @@ def test_resend_after_ack_with_unknown_attempts_is_ok():
     res = _single([ack(), TIMEOUT, ack(True)], [make_order(ACCT_A, K1)])
     r = row(res, K1)
     assert (r.cls, r.sub, r.idem) == (OrderClass.OK, OkSub.CLEAN, ())
+
+
+@pytest.mark.parametrize(
+    "with_202, cls", [(False, OrderClass.FILL_STATE), (True, OrderClass.UNSETTLED)]
+)
+def test_pending_row_rule_depends_on_202_in_run(with_202, cls):
+    """202가 없는 run은 지금 규칙(FILL_STATE) 그대로다. 202가 하나라도 있으면 run 전체가 adapter 규칙이다."""
+    intents = [make_intent(K1, ACCT_A)]
+    results = [make_result(K1, [ack(status="pending", **UNFILLED)])]
+    orders = [make_order(ACCT_A, K1, status="pending", **UNFILLED)]
+    if with_202:
+        intents.append(make_intent(K2, ACCT_A))
+        results.append(make_result(K2, [adapter_ack(key=K2)]))
+        orders.append(make_order(ACCT_A, K2))
+    r = row(run(make_log(intents, results), make_db(orders=orders)), K1)
+    assert r.cls == cls and "also" not in r.detail
+
+
+@pytest.mark.parametrize(
+    "status, classes",
+    [
+        ("rejected", ("UNRESOLVED_COMMITTED",)),
+        ("pending", ("UNRESOLVED_COMMITTED", "UNSETTLED")),
+    ],
+)
+def test_unknown_key_in_adapter_run(status, classes):
+    """결과 불명 키의 DB 행이 rejected면 FILL_STATE가 아니다. UNSETTLED가 붙어도 사용자 영향은 한 번 센다."""
+    log = make_log(
+        [make_intent(K1, ACCT_A), make_intent(K2, ACCT_A)],
+        [make_result(K1, [adapter_ack()]), make_result(K2, [TIMEOUT])],
+    )
+    k2 = make_order(ACCT_A, K2, status=status, **UNFILLED)
+    res = run(log, make_db(orders=[make_order(ACCT_A, K1), k2]))
+    r = row(res, K2)
+    assert classes_of(r) == classes and "fill" not in r.detail
+    assert summarize(res)["user_impact"] == 1
+
+
+@pytest.mark.parametrize("status, cls", [("rejected", None), ("pending", "UNSETTLED")])
+def test_db_only_row_in_adapter_run(status, cls):
+    """보낸 키가 아닌 run 계좌 주문도 adapter run 규칙을 따른다(rejected는 행이 없다)."""
+    log = make_log([make_intent(K1, ACCT_A)], [make_result(K1, [adapter_ack()])])
+    other = make_order(ACCT_A, "manual-1", status=status, **UNFILLED)
+    res = run(log, make_db(orders=[make_order(ACCT_A, K1), other]))
+    got = [(c.cls, c.detail["scope"]) for c in res.classified if c.key == "manual-1"]
+    assert got == ([(cls, "account")] if cls else [])
+
+
+@pytest.mark.parametrize(
+    "db_rows, mark", [(1, "response_unparsed"), (0, "lost_unknown")]
+)
+def test_202_without_body_is_unparsed(db_rows, mark):
+    """202인데 원문을 못 읽으면 200과 같이 PASS만 막는 불확실성이다."""
+    log = make_log(
+        [make_intent(K1, ACCT_A)], [make_result(K1, [att(202, rp=None, raw=None)])]
+    )
+    orders = [make_order(ACCT_A, K1, status="pending", **UNFILLED)][:db_rows]
+    res = run(log, make_db(accounts=[ACCT_A], orders=orders))
+    r = row(res, K1)
+    assert r.detail["response"] == "unparsed"
+    assert r.detail["idem_uncompared"] == ["att1:unparsed"]
+    assert (res.marks[mark], res.marks["resend_uncompared"]) == (1, 1)
 
 
 def test_intent_key_mismatch_matches_db_by_body_key():

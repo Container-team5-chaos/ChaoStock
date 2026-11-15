@@ -31,6 +31,8 @@ checks:
   - {id: invariants, kind: integrity, sql: [cash, qty, avg, nonneg, arith, constraints], op: '==', value: 0}
   - {id: stale_fill, kind: integrity, check: fresh, op: '==', value: 0, required: false}   # ticks가 비면 NOT_EVALUATED
   - {id: protocol, kind: unresolved, class: [PROTOCOL], op: '==', value: 0, on_violation: inconclusive}
+  # adapter run에서 끝까지 정산되지 않은 주문(DB pending·unknown). 결과를 모르니 FAIL이 아니라 INCONCLUSIVE다
+  - {id: unsettled, kind: unresolved, class: [UNSETTLED], op: '==', value: 0, on_violation: inconclusive}
   - {id: order_p95_k6, kind: client, stat: ack_p95_ms, op: '<', value: 300, phases: [baseline, tail, steady]}
   - {id: order_err_k6, kind: client, stat: sys_err_ratio, op: '<', value: 0.01, phases: [baseline, tail, steady]}
   - {id: k6_exit, kind: k6, check: exit_code}

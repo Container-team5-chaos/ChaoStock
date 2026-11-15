@@ -57,6 +57,7 @@ from .factories import (
     MARKET,
     PRICE,
     RUN_ID,
+    UNFILLED,
     VOLUME,
     att,
     default_schema,
@@ -152,6 +153,10 @@ def test_class_groups():
         OrderClass.IDEMPOTENCY_VIOLATION,
     }
     assert OrderClass.INTERRUPTED in USER_IMPACT_CLASSES
+    assert (
+        OrderClass.UNSETTLED not in USER_IMPACT_CLASSES
+    )  # 결과 불명(클라이언트)과 따로 센다
+    assert OrderClass.UNSETTLED not in DUPLICATE_CLASSES
 
 
 def test_removed_types_are_gone():
@@ -261,6 +266,8 @@ def test_run_key_exact_match():
 # ---------------------------------------------------------------- 시도 성격(계약 명세 3)
 
 _ACK_RAW = response_raw("k1")
+_ACCEPTED_RAW = response_raw("k1", status="pending", **UNFILLED)
+_REPLAY_REJECTED_RAW = response_raw("k1", status="rejected", replayed=True, **UNFILLED)
 
 
 @pytest.mark.parametrize(
@@ -273,6 +280,11 @@ _ACK_RAW = response_raw("k1")
         (200, None, '{"order_id": null}', AttemptKind.PROTOCOL),
         (200, None, "[1]", AttemptKind.PROTOCOL),
         (201, None, _ACK_RAW, AttemptKind.PROTOCOL),
+        (202, None, _ACCEPTED_RAW, AttemptKind.ACK),  # adapter 접수
+        (202, None, None, AttemptKind.PROTOCOL),
+        (422, None, _REPLAY_REJECTED_RAW, AttemptKind.ACK),  # 정산 거절 replay
+        (422, "insufficient_balance", reject_raw("x", "k1"), AttemptKind.REJECT),
+        (422, None, response_raw("k1", status="filled"), AttemptKind.REJECT),
         (400, "invalid_request", None, AttemptKind.REJECT),
         (404, "user_not_found", None, AttemptKind.REJECT),
         (409, "idempotency_conflict", None, AttemptKind.REJECT),

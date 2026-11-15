@@ -347,7 +347,7 @@ CMD_PREFIX = ("kubectl", "-n", "exchange")   # 테스트는 ("docker", "exec", "
 
 | 성격 | 조건 |
 |---|---|
-| ACK | `st == 200`이고 `raw`가 JSON 객체이며 `order_id`가 있다 |
+| ACK | `raw`가 `order_id` 있는 JSON 객체이고 `st` ∈ {200, 202}이거나 `st == 422`이고 `status`가 rejected(adapter 정산 거절 replay)다 |
 | 확정 거절(REJECT) | `st ∈ {400, 404, 409, 422}`, 또는 503이고 `ec ∈ {price_unavailable, stale_price}`. INSERT 전에 거절돼(422·404는 잠금 안에서 롤백) **그 시도는** 저장하지 않는다(`app/orders.py`). 같은 키의 처리 중인 앞 시도는 나중에 커밋될 수 있다(4.4 같은 키 경합) |
 | 결과 불명(UNKNOWN) | `st == 0`, 502, 504, 503 not_ready·모르는 `ec`, 그 밖 5xx. not_ready는 커밋 뒤 연결 오류일 수 있다(`app/main.py`) |
 | PROTOCOL | 그 밖(201, 200인데 `order_id`가 없거나 원문이 깨짐) |
@@ -366,7 +366,7 @@ CMD_PREFIX = ("kubectl", "-n", "exchange")   # 테스트는 ("docker", "exec", "
 **3단계: DB와 상관없는 멱등 위반**(IDEMPOTENCY_VIOLATION, FAIL)
 - DOUBLE_CREATE: 한 키에서 rp=false ACK가 2번 이상이고 order_id가 다르다.
 - FIRST_REPLAYED: 첫 시도(n=1)가 ACK인데 rp=true다(키 충돌·서버 결함). Go 자동 재전송이 없으므로(4.4) `conn_reuse`와 무관하게 FAIL이다.
-- RESEND_DIFF: 두 번째 이후 ACK의 의미 필드(order_id, user_id, market, side, volume, status, fill_price, amount)가 원 응답과 다르다.
+- RESEND_DIFF: 두 번째 이후 ACK의 의미 필드(order_id, user_id, market, side, volume, status, fill_price, amount)가 원 응답과 다르다. 쌍 중 하나라도 202(pending)면 order_id, user_id, market, side, volume만 본다.
 - 409_SAME_BODY: 409를 받았는데 그 키의 전송 본문이 모두 같다. k6는 늘 같은 바이트를 보낸다.
 - 원문을 못 읽어 비교하지 못하면 PASS만 막는다(`detail.uncertain_rows`).
 
@@ -384,14 +384,14 @@ CMD_PREFIX = ("kubectl", "-n", "exchange")   # 테스트는 ("docker", "exec", "
 - 응답 대 DB 비교는 `integrity.response_fields`(키 = 응답 필드, 값 = orders 열, 기본값 `model.DEFAULT_RESPONSE_FIELDS`, 근거 `app/schemas.py` `order_to_dict`)를 따른다. 숫자는 Decimal로 비교한다. `filled_at`은 두 형식(통일본 밀리초 `…:00.123Z`, 코드 `isoformat()` 마이크로초 `+00:00`)을 모두 읽고, **응답에 적힌 소수 자릿수까지만** DB 값을 내림해 시각으로 비교한다(밀리초 응답이면 밀리초까지). 형식을 못 읽으면 불일치가 아니라 `response_unparsed`(PASS만 막음)다. `replayed`·`reason`은 분류 입력이다. `response_fields_confirmed: false`인데 다르면 RESPONSE_SCHEMA_UNCONFIRMED(INCONCLUSIVE)다.
 - **OK 세부(OkSub)**: `clean`(첫 시도 ACK, rp=false), `after_commit`(앞에 결과 불명, 첫 ACK rp=true. 앞 시도가 커밋됐다. crash 효과), `not_committed`(앞에 결과 불명 또는 확정 거절, 첫 ACK rp=false. 503 stale_price 뒤 재시도 체결 포함), `after_503`(앞에 503 not_ready, 첫 ACK rp=true), `rejected`(K_REJECT × D0).
 - 앞에 503 아닌 결과 불명(0·502·504)이 있으면 `after_commit`이 `after_503`보다 앞선다. `after_503`은 경고 ROLLBACK_REPLY_COMMITTED를 낸다.
-- **주 클래스**(`classified.csv` `cls`): DUP_ORDER → PROTOCOL → 행렬 칸(OK 아님) → BODY_MISMATCH → FILL_STATE → IDEMPOTENCY_VIOLATION 중 처음 것이다. 나머지는 `detail.also`에 둔다. 행렬 칸이 OK여도 멱등 위반이 있으면 `cls`는 IDEMPOTENCY_VIOLATION이라 OK 수에는 문제없는 행만 들어간다.
+- **주 클래스**(`classified.csv` `cls`): DUP_ORDER → PROTOCOL → 행렬 칸(OK 아님) → BODY_MISMATCH → FILL_STATE → UNSETTLED → IDEMPOTENCY_VIOLATION 중 처음 것이다. 나머지는 `detail.also`에 둔다. 행렬 칸이 OK여도 멱등 위반이 있으면 `cls`는 IDEMPOTENCY_VIOLATION이라 OK 수에는 문제없는 행만 들어간다.
 - 명세 문구보다 넓힌 곳(확인 필요: 리드): 앞 시도가 모두 확정 거절이고 첫 ACK가 rp=true면 FIRST_REPLAYED로 본다(확정 거절은 그 시도 자체를 저장하지 않고 앞에 결과 불명 시도도 없어 n=1과 같다). 첫 ACK 뒤에 확정 거절이 오면 RESEND_DIFF다(이미 있는 키라 서비스는 replay해야 한다).
-- PASS만 막는 표시(`marks`, 판정 몫): `response_unparsed`(200 원문 또는 응답 `filled_at`을 못 읽었고 D1 → 내용 불일치), `lost_unknown`(200 원문을 못 읽었고 D0 → 유실), `resend_uncompared`(원문·replayed를 못 읽어 멱등 검사를 다 못 함 → 중복), `body_missing`(D1인데 보낸 본문이 없음 → 내용 불일치).
+- PASS만 막는 표시(`marks`, 판정 몫): `response_unparsed`(200·202 원문 또는 응답 `filled_at`을 못 읽었고 D1 → 내용 불일치), `lost_unknown`(200·202 원문을 못 읽었고 D0 → 유실), `resend_uncompared`(원문·replayed를 못 읽어 멱등 검사를 다 못 함 → 중복), `body_missing`(D1인데 보낸 본문이 없음 → 내용 불일치).
 
-**5단계: DB 전용**(행 단위): DUP_ORDER(같은 client_order_id 행 2개 이상. UNIQUE라 정상이면 0), FILL_STATE(status='filled'인데 fill_price·amount·filled_at 중 NULL, 또는 run 주문인데 status가 filled가 아님), ORPHAN(run 키 형식인데 `intent`가 없다).
+**5단계: DB 전용**(행 단위): DUP_ORDER(같은 client_order_id 행 2개 이상. UNIQUE라 정상이면 0), FILL_STATE(status='filled'인데 fill_price·amount·filled_at 중 NULL, 또는 run 주문인데 status가 filled가 아님. adapter run(202 시도가 있는 run)에서는 rejected는 정상이고 pending·unknown은 UNSETTLED다), ORPHAN(run 키 형식인데 `intent`가 없다).
 
 **완료 기준 용어 대응**
-- 유실 = LOST + REJECT_COMMITTED. 중복 = DUP_ORDER + FILL_STATE + IDEMPOTENCY_VIOLATION. 내용 불일치 = MISMATCH + BODY_MISMATCH. 고아 = ORPHAN.
+- 유실 = LOST + REJECT_COMMITTED. 중복 = DUP_ORDER + FILL_STATE + IDEMPOTENCY_VIOLATION. 내용 불일치 = MISMATCH + BODY_MISMATCH. 고아 = ORPHAN. 미정산 = UNSETTLED(INCONCLUSIVE).
 - UNRESOLVED_*, INTERRUPTED는 DB 사실로 확정했으므로 돈 문제가 아니다. 사용자 영향(`intent_unresolved_ratio`)으로 보고한다.
 - 교차 확인(`judge_self_check`, `required: false`): 스냅샷의 run 키 형식 주문 행 수·키 수(`invariants.run_key_counts`)와 분류기가 run 키 행에 매칭한 orders.id 수·행 수(D1 + ORPHAN, `classify.run_order_count`)가 다르면 JUDGE_SELF_CHECK다.
 
@@ -527,6 +527,7 @@ checks:
   - {id: invariants, kind: integrity, sql: [cash, qty, avg, nonneg, arith, constraints], op: '==', value: 0}
   - {id: stale_fill, kind: integrity, check: fresh, op: '==', value: 0, required: false}
   - {id: protocol, kind: unresolved, class: [PROTOCOL], op: '==', value: 0, on_violation: inconclusive}
+  - {id: unsettled, kind: unresolved, class: [UNSETTLED], op: '==', value: 0, on_violation: inconclusive}
   - {id: order_p95_k6, kind: client, stat: ack_p95_ms, op: '<', value: 300, phases: [baseline, tail, steady]}
   - {id: order_err_k6, kind: client, stat: sys_err_ratio, op: '<', value: 0.01, phases: [baseline, tail, steady]}
   - {id: k6_exit, kind: k6, check: exit_code}

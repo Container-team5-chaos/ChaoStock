@@ -91,6 +91,7 @@ def test_default_contents():
         "invariants",
         "stale_fill",
         "protocol",
+        "unsettled",
         "order_p95_k6",
         "order_err_k6",
         "k6_exit",
@@ -120,6 +121,8 @@ def test_default_contents():
     assert c.item("stale_fill")["check"] == "fresh"
     assert c.item("stale_fill")["required"] is False
     assert c.item("protocol")["on_violation"] == "inconclusive"
+    assert c.item("unsettled")["class"] == ["UNSETTLED"]
+    assert c.item("unsettled")["on_violation"] == "inconclusive"
     assert c.item("safety")["on_violation"] == "inconclusive"
     assert c.item("safety")["kind"] == "guard"
     assert c.data["require_extra_accounts"] is False

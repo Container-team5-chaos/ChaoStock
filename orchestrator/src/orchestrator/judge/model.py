@@ -60,6 +60,10 @@ class RejectReason(StrEnum):
 
 # 시도 성격(계약 명세 3). 상수 집합으로만 판정한다.
 ACK_STATUS = 200
+ACCEPTED_STATUS = 202  # adapter 모드 접수. 최종 결과는 DB 행으로 본다
+ACK_STATUSES = frozenset({ACK_STATUS, ACCEPTED_STATUS})
+REPLAY_STATUSES = ACK_STATUSES | {422}  # 주문 본문(replayed)이 올 수 있는 상태 코드
+UNSETTLED_STATUSES = frozenset({"pending", "unknown"})  # adapter 정산 전·정산 불명
 # 확정 거절. 그 시도는 저장하지 않는다. 같은 키의 처리 중인 앞 시도는 나중에 커밋될 수 있다
 # (앞 시도가 잠금을 쥔 동안 재전송이 기다렸다가 바뀐 잔고로 422를 받는 경우, app/orders.py)
 REJECT_STATUSES = frozenset({400, 404, 409, 422})
@@ -106,6 +110,10 @@ FINGERPRINT_COLUMNS = (
 ORDER_DECIMAL_COLUMNS = frozenset({"volume", "fill_price", "amount"})
 ORDER_TIME_COLUMNS = frozenset({"created_at", "filled_at"})
 ORDER_INT_COLUMNS = frozenset({"id"})
+# 접수 뒤 바뀌지 않는 열. 202(pending) 응답이 끼면 이 열만 비교한다
+IMMUTABLE_ORDER_COLUMNS = frozenset(
+    {"id", "client_order_id", "user_id", "market", "side", "volume"}
+)
 # 보낸 본문 대 DB 행 비교 필드(BODY_MISMATCH, 계약 명세 4). 서비스 same_request와 같다
 ORDER_BODY_FIELDS = ("user_id", "market", "side", "volume")
 # intent.body 필드(계약 명세 2)
@@ -299,7 +307,7 @@ class Outcome(StrEnum):
 class AttemptKind(StrEnum):
     """시도 하나의 성격(계약 명세 3)."""
 
-    ACK = "ACK"  # 200이고 raw가 order_id 있는 JSON 객체
+    ACK = "ACK"  # 200·202 또는 422 replay(status rejected)이고 raw가 order_id 있는 JSON 객체
     # 확정 거절. 서버가 INSERT 전에 거절해 그 시도는 저장하지 않는다(같은 키의 처리 중인
     # 앞 시도는 나중에 커밋될 수 있다)
     REJECT = "REJECT"
@@ -338,6 +346,7 @@ class OrderClass(StrEnum):
     RESPONSE_SCHEMA_UNCONFIRMED = (
         "RESPONSE_SCHEMA_UNCONFIRMED"  # 매핑 미확정인데 응답≠DB
     )
+    UNSETTLED = "UNSETTLED"  # adapter run인데 DB 행이 아직 pending·unknown(결과 미정)
     INTERRUPTED = "INTERRUPTED"
 
 
@@ -355,6 +364,7 @@ ORPHAN_CLASSES = frozenset({OrderClass.ORPHAN})
 UNRESOLVED_CLASSES = frozenset(
     {OrderClass.UNRESOLVED_COMMITTED, OrderClass.UNRESOLVED_ABSENT}
 )
+UNSETTLED_CLASSES = frozenset({OrderClass.UNSETTLED})
 USER_IMPACT_CLASSES = UNRESOLVED_CLASSES | {OrderClass.INTERRUPTED}
 DB_ONLY_CLASSES = frozenset(
     {OrderClass.DUP_ORDER, OrderClass.FILL_STATE, OrderClass.ORPHAN}
@@ -403,15 +413,17 @@ RESEND_COMPARE_FIELDS = (
 def attempt_kind(st: int, ec: str | None, raw: str | None) -> AttemptKind:
     """시도 성격(계약 명세 3). 상수 집합만 본다.
 
-    - ACK: st == 200이고 raw가 JSON 객체이며 order_id 값이 있다.
+    - ACK: raw가 order_id 값이 있는 JSON 객체이고 st ∈ {200, 202}이거나 st == 422이고 status rejected.
     - REJECT: st ∈ {400, 404, 409, 422}, 또는 st == 503이고 ec ∈ {price_unavailable, stale_price}.
     - UNKNOWN: st == 0, 또는 5xx(503은 ec가 not_ready이거나 모르는 값·None).
-    - PROTOCOL: 그 밖. 200인데 raw가 없거나 깨져 order_id를 확인하지 못한 것도 여기다.
+    - PROTOCOL: 그 밖. 200·202인데 raw가 없거나 깨져 order_id를 확인하지 못한 것도 여기다.
     """
-    if st == ACK_STATUS:
+    if st in REPLAY_STATUSES:
         body = _parse_raw(raw)
         if body is not None and body.get(ORDER_ID_FIELD) is not None:
-            return AttemptKind.ACK
+            if st != 422 or body.get("status") == STATUS_REJECTED:
+                return AttemptKind.ACK
+    if st in ACK_STATUSES:
         return AttemptKind.PROTOCOL
     if st in REJECT_STATUSES:
         return AttemptKind.REJECT
@@ -429,8 +441,8 @@ class Attempt:
     n: 1부터 시작하는 전송 번호(첫 전송과 재전송을 시간순으로 함께 센다).
     t0·t1: 요청 시작·끝 epoch ms. st: HTTP 상태(전송 오류·타임아웃은 0). ms: k6 timings.duration.
     ec: 거절 본문의 reason 또는 k6 error_code 문자열. 없으면 None. 숫자면 파서가 문자열로 바꾼다.
-    rp: 200 본문의 replayed(bool). 그 밖 None.
-    raw: 200·409·4xx·503 본문 텍스트(2048자 이하). 없으면 None.
+    rp: 200·202·422 replay 본문의 replayed(bool). 그 밖 None.
+    raw: 200·202·409·4xx·503 본문 텍스트(2048자 이하). 없으면 None.
     """
 
     n: int

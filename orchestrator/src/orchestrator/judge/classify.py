@@ -8,7 +8,7 @@ k6 기록(K6Log, JSONL v2)과 DB 스냅샷(DbSnapshot)을 client_order_id 단위
 - 행렬(계약 명세 4): K × D. D1 = 그 client_order_id의 orders 행이 있다. K_ACK × D1의 일치는
   첫 ACK 본문 대 DB 행이다(계약 명세 5 매핑, cfg.response_fields).
 - 행 하나 = 보낸 키 하나(intent 또는 result가 있는 키), 또는 DB 전용 행(ORPHAN, 범위 안 계좌의 이상).
-- 주 클래스는 DUP_ORDER → PROTOCOL → 행렬 칸(OK 아님) → BODY_MISMATCH → FILL_STATE →
+- 주 클래스는 DUP_ORDER → PROTOCOL → 행렬 칸(OK 아님) → BODY_MISMATCH → FILL_STATE → UNSETTLED →
   IDEMPOTENCY_VIOLATION 중 처음 나오는 것이다. 하나도 없으면 OK다. 나머지는 detail["also"]에 둔다.
   IDEMPOTENCY_VIOLATION은 also가 아니라 idem으로 센다. 세는 규칙은 classes_of 한 곳에 있다.
 - 응답 필드 매핑이 미확정이면(response_fields_confirmed=False) 응답 대 DB 불일치는 MISMATCH 대신
@@ -17,7 +17,7 @@ k6 기록(K6Log, JSONL v2)과 DB 스냅샷(DbSnapshot)을 client_order_id 단위
   바꿀 수 없는 값은 불일치다. 단 응답 시각(filled_at 등)은 응답에 적힌 소수 자릿수까지만 DB 값을
   내림해 비교하고(밀리초 Z, 마이크로초 +00:00 모두 읽는다), 못 읽으면 불일치가 아니라
   불확실성이다(계약 명세 11, _same_instant).
-- 불확실성은 marks로 센다. PASS만 막는다(판정 몫, 설계 5.7 규칙 4). 200인데 원문 또는 응답
+- 불확실성은 marks로 센다. PASS만 막는다(판정 몫, 설계 5.7 규칙 4). 200·202인데 원문 또는 응답
   시각을 못 읽음(response_unparsed·lost_unknown), replayed를 못 읽어 멱등 검사를 다 못 함
   (resend_uncompared), 보낸 본문이 없어 본문 비교를 못 함(body_missing).
 - 결정성: 출력은 키 순서다. 입력 줄 순서·JSON 키 순서·현재 시각·난수에 기대지 않는다.
@@ -31,9 +31,12 @@ from typing import Any
 
 from . import reasons
 from .model import (
+    ACCEPTED_STATUS,
+    ACK_STATUSES,
     DEFAULT_RESPONSE_FIELDS,
     DUPLICATE_CLASSES,
     EXAMPLES_MAX,
+    IMMUTABLE_ORDER_COLUMNS,
     LOSS_CLASSES,
     MISMATCH_CLASSES,
     ORDER_BODY_FIELDS,
@@ -43,7 +46,10 @@ from .model import (
     REPLAYED_FIELD,
     RESEND_COMPARE_FIELDS,
     STATUS_FILLED,
+    STATUS_REJECTED,
     UNRESOLVED_CLASSES,
+    UNSETTLED_CLASSES,
+    UNSETTLED_STATUSES,
     USER_IMPACT_CLASSES,
     Attempt,
     Classified,
@@ -153,6 +159,7 @@ def classify(
         run_id = log.run_start.run
     by_key = db.orders_by_key()
     pairs = _resend_pairs(cfg)
+    adapter = any(a.st == ACCEPTED_STATUS for r in log.results.values() for a in r.atts)
 
     rows: list[Classified] = []
     sent = sorted(set(log.intents) | set(log.results))
@@ -170,6 +177,7 @@ def classify(
                 cfg,
                 pairs,
                 db_key=db_key,
+                adapter=adapter,
             )
         )
     for key, group in by_key.items():
@@ -182,6 +190,7 @@ def classify(
             run_ids=run_ids,
             extra=extra,
             log_problems=len(log.problems),
+            adapter=adapter,
         )
         if row is not None:
             rows.append(row)
@@ -319,6 +328,7 @@ def summarize(
         "orphans": total(ORPHAN_CLASSES),
         "unresolved": total(UNRESOLVED_CLASSES),
         "interrupted": c.get(OrderClass.INTERRUPTED, 0),
+        "unsettled": total(UNSETTLED_CLASSES),
         "user_impact": user_impact,
         "intent_unresolved_ratio": ratio,
         "protocol": c.get(OrderClass.PROTOCOL, 0),
@@ -424,7 +434,7 @@ def _idem(
     uncompared: list[str] = []
     acks = [(a, _replayed(a)[0]) for a in atts if a.is_ack]
     for a in atts:
-        if a.st == 200 and not a.is_ack:
+        if a.st in ACK_STATUSES and not a.is_ack:
             uncompared.append(f"att{a.n}:unparsed")
     for a, rp in acks:
         if rp is None:
@@ -446,7 +456,8 @@ def _idem(
         rdiff: dict[str, Any] = {}
         for a in atts[idx + 1 :]:
             if a.is_ack:
-                d = _diff_fields(orig, a.json() or {}, pairs)
+                final = _final(first) and _final(a)
+                d = _diff_fields(orig, a.json() or {}, _compared(pairs, final))
                 if d:
                     rdiff[str(a.n)] = d
             elif a.is_reject:
@@ -515,6 +526,7 @@ def _classify_sent(
     pairs: tuple[tuple[str, str], ...],
     *,
     db_key: str | None = None,
+    adapter: bool,
 ) -> Classified:
     """보낸 키 하나(intent 또는 result가 있는 키)를 분류한다. orders는 db_key(_db_key)의 행이다."""
     k = k_state(result)
@@ -558,16 +570,26 @@ def _classify_sent(
     if body_diff:
         detail["body_diff"] = body_diff
 
-    fill = _fill_state(orders)
+    fill, unsettled = _fill_state(orders, adapter)
     if fill:
         detail["fill"] = fill
+    if unsettled:
+        detail["unsettled"] = unsettled
 
     # 원 응답 대 DB(K_ACK × D1, 계약 명세 5)
     resp_diff: dict[str, Any] = {}
     first_ack = result.first_ack if result is not None else None
     if first_ack is not None and orders:
         resp = first_ack.json() or {}
-        resp_diff, unread = _response_diff(resp, _target(orders, resp), cfg)
+        target = _target(orders, resp)
+        resp_diff, unread = _response_diff(resp, target, cfg, final=_final(first_ack))
+        if not _final(first_ack):
+            # 202 뒤 최종 응답(200, 422 replay)은 고객에게 알린 결과라 DB와 모든 열을 맞춰 본다
+            for a in atts:
+                if a.is_ack and _final(a):
+                    d, u = _response_diff(a.json() or {}, target, cfg, final=True)
+                    resp_diff = {**d, **resp_diff}
+                    unread += [f for f in u if f not in unread]
         if resp_diff:
             detail["response"] = "mismatch"
             detail["response_diff"] = resp_diff
@@ -576,8 +598,8 @@ def _classify_sent(
             detail["response"] = "unparsed" if unread else "match"
         if unread:
             detail["response_unparsed"] = unread
-    elif first_ack is None and any(a.st == 200 for a in atts):
-        detail["response"] = "unparsed"  # 200을 받았지만 원문을 못 읽었다
+    elif first_ack is None and any(a.st in ACK_STATUSES for a in atts):
+        detail["response"] = "unparsed"  # 200·202를 받았지만 원문을 못 읽었다
 
     if k is KState.INTERRUPTED:
         cell = OrderClass.INTERRUPTED
@@ -613,6 +635,7 @@ def _classify_sent(
         protocol=bool(protocol),
         body=bool(body_diff),
         fill=bool(fill),
+        unsettled=bool(unsettled),
         idem=bool(idem),
     )
     if also:
@@ -647,6 +670,7 @@ def _compose(
     protocol: bool,
     body: bool,
     fill: bool,
+    unsettled: bool,
     idem: bool,
 ) -> tuple[OrderClass, list[str]]:
     """주 클래스와 also(모듈 docstring 순서). IDEMPOTENCY_VIOLATION은 also에 넣지 않는다."""
@@ -661,6 +685,8 @@ def _compose(
         found.append(OrderClass.BODY_MISMATCH)
     if fill:
         found.append(OrderClass.FILL_STATE)
+    if unsettled:
+        found.append(OrderClass.UNSETTLED)
     if idem:
         found.append(OrderClass.IDEMPOTENCY_VIOLATION)
     if not found:
@@ -680,6 +706,7 @@ def _classify_db_only(
     run_ids: frozenset[str],
     extra: frozenset[str],
     log_problems: int,
+    adapter: bool,
 ) -> Classified | None:
     """보낸 키가 아닌 DB 행. run 키 형식이면 ORPHAN, 범위 안 계좌면 이상이 있을 때만 행을 만든다.
 
@@ -696,14 +723,16 @@ def _classify_db_only(
             scope = "account"
         else:
             return None
-    fill = _fill_state(group)
+    fill, unsettled = _fill_state(group, adapter)
     dup = len(group) >= 2
-    if scope is not None and not dup and not fill:
+    if scope is not None and not dup and not fill and not unsettled:
         return None  # 범위 안 계좌의 정상 주문은 분류하지 않는다
     detail: dict[str, Any] = {"db_rows": len(group)}
     detail.update(_db_facts(group))
     if fill:
         detail["fill"] = fill
+    if unsettled:
+        detail["unsettled"] = unsettled
     if scope is not None:
         detail["scope"] = scope
     else:
@@ -717,6 +746,7 @@ def _classify_db_only(
         protocol=False,
         body=False,
         fill=bool(fill),
+        unsettled=bool(unsettled),
         idem=False,
     )
     if also:
@@ -732,12 +762,22 @@ def _classify_db_only(
     )
 
 
-def _fill_state(orders: Iterable[DbOrder]) -> list[str]:
-    """FILL_STATE 메모. status가 filled가 아님, 또는 filled인데 체결 열이 NULL."""
+def _fill_state(
+    orders: Iterable[DbOrder], adapter: bool
+) -> tuple[list[str], list[str]]:
+    """(FILL_STATE 메모, UNSETTLED 메모). filled가 아니거나 filled인데 체결 열이 NULL이면 FILL_STATE다.
+
+    adapter run이면 rejected는 메모가 없고 pending·unknown은 UNSETTLED다.
+    """
     notes: list[str] = []
+    unsettled: list[str] = []
     for o in orders:
         if o.status != STATUS_FILLED:
-            notes.append(f"{o.id}:status_{o.status or 'null'}")
+            note = f"{o.id}:status_{o.status or 'null'}"
+            if adapter and o.status in UNSETTLED_STATUSES:
+                unsettled.append(note)
+            elif not (adapter and o.status == STATUS_REJECTED):
+                notes.append(note)
             continue
         for col, v in (
             ("fill_price", o.fill_price),
@@ -746,7 +786,7 @@ def _fill_state(orders: Iterable[DbOrder]) -> list[str]:
         ):
             if v is None:
                 notes.append(f"{o.id}:filled_null_{col}")
-    return notes
+    return notes, unsettled
 
 
 # ---------------------------------------------------------------- 비교 도우미(계약 명세 5)
@@ -802,6 +842,18 @@ def _diff_fields(
     return diff
 
 
+def _compared(
+    pairs: Iterable[tuple[str, str]], final: bool
+) -> tuple[tuple[str, str], ...]:
+    """비교할 (응답 필드, 열). final이 아니면(202가 낌) 바뀌지 않는 열만 본다."""
+    return tuple(p for p in pairs if final or p[1] in IMMUTABLE_ORDER_COLUMNS)
+
+
+def _final(a: Attempt) -> bool:
+    """최종 결과를 담은 ACK인가. 202(pending)는 worker가 나중에 상태를 바꾼다."""
+    return a.st != ACCEPTED_STATUS
+
+
 def _target(orders: tuple[DbOrder, ...], resp: Mapping[str, Any]) -> DbOrder:
     """응답과 비교할 행. 행이 여럿이면(DUP_ORDER) id가 응답 order_id인 행, 없으면 첫 행."""
     if len(orders) > 1:
@@ -813,7 +865,7 @@ def _target(orders: tuple[DbOrder, ...], resp: Mapping[str, Any]) -> DbOrder:
 
 
 def _response_diff(
-    resp: Mapping[str, Any], order: DbOrder, cfg: IntegrityCfg
+    resp: Mapping[str, Any], order: DbOrder, cfg: IntegrityCfg, *, final: bool
 ) -> tuple[dict[str, list[Any]], list[str]]:
     """원 응답 대 DB 행(cfg.response_fields: 응답 필드 → 열). (불일치, 못 읽은 시각 필드).
 
@@ -821,7 +873,7 @@ def _response_diff(
     """
     diff: dict[str, list[Any]] = {}
     unread: list[str] = []
-    for f, col in sorted(cfg.response_fields.items()):
+    for f, col in _compared(sorted(cfg.response_fields.items()), final):
         try:
             want = order.value(col)
         except KeyError:

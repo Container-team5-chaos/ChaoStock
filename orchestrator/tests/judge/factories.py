@@ -168,6 +168,9 @@ def response_body(
     return out
 
 
+UNFILLED = {"fill_price": None, "amount": None, "filled_us": None}  # 체결 전 행·본문
+
+
 def response_raw(key: str, acct: str = ACCT_A, **kw: Any) -> str:
     """response_body의 JSON 텍스트(Attempt.raw)."""
     return canonical_json(response_body(key, acct, **kw))
