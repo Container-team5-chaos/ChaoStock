@@ -36,22 +36,20 @@ function clip(text) {
 }
 
 // http 응답 하나 → 시도 {n, t0, t1, st, ec, ms, rp, raw}(계약 명세 2). 8개 키를 모두 쓴다.
-// st: 전송 오류·타임아웃이면 0. ec: 거절 본문 reason, 없으면 k6 error_code(문자열), 200은 null.
-// ms: k6 timings.duration. rp: 200 본문의 replayed(그 밖 null). raw: 200·4xx·503 본문(2048자 이하).
+// st: 전송 오류·타임아웃이면 0. ec: 거절 본문 reason, 없으면 k6 error_code(문자열), 200·202는 null.
+// ms: k6 timings.duration. rp: 200·202·422 주문 본문의 replayed(불리언이 아니면 null). raw: 200·202·4xx·503 본문(2048자 이하).
 export function attemptOf(n, t0, t1, res) {
   const st = res.status | 0;
   const text = typeof res.body === 'string' ? res.body : null;
   const obj = parseObj(text);
+  const orderBody = st === 200 || st === 202 || st === 422;
+  const rp = orderBody && obj !== null && typeof obj.replayed === 'boolean' ? obj.replayed : null;
   let ec = null;
-  let rp = null;
-  if (st === 200) {
-    if (obj !== null && typeof obj.replayed === 'boolean') rp = obj.replayed;
-  } else if (st !== 0 && obj !== null && typeof obj.reason === 'string') {
-    ec = obj.reason;
-  } else if (res.error_code) {
-    ec = String(res.error_code);
+  if (st !== 200 && st !== 202) {
+    if (st !== 0 && obj !== null && typeof obj.reason === 'string') ec = obj.reason;
+    else if (res.error_code) ec = String(res.error_code);
   }
-  const keepRaw = st === 200 || (st >= 400 && st < 500) || st === 503;
+  const keepRaw = st === 200 || st === 202 || (st >= 400 && st < 500) || st === 503;
   const dur = res.timings && res.timings.duration;
   return {
     n,
@@ -62,7 +60,7 @@ export function attemptOf(n, t0, t1, res) {
     ms: typeof dur === 'number' && dur >= 0 ? dur : 0,
     rp,
     raw: keepRaw && text !== null ? clip(text) : null,
-    _obj: st === 200 ? obj : null, // 기록하지 않는다(toRecord가 뺀다)
+    _obj: orderBody ? obj : null, // 기록하지 않는다(toRecord가 뺀다)
   };
 }
 
@@ -75,7 +73,9 @@ const REJECT_STATUSES = [400, 404, 409, 422];
 const REJECT_503 = ['price_unavailable', 'stale_price'];
 
 export function kindOf(a) {
-  if (a.st === 200) return a._obj !== null && a._obj.order_id != null ? 'ack' : 'protocol';
+  const hasId = a._obj !== null && a._obj.order_id != null;
+  if (a.st === 200 || a.st === 202) return hasId ? 'ack' : 'protocol';
+  if (a.st === 422 && hasId && a._obj.status === 'rejected') return 'ack'; // 이미 접수된 주문의 확정 거절 재요청
   if (REJECT_STATUSES.indexOf(a.st) >= 0) return 'reject';
   if (a.st === 503 && REJECT_503.indexOf(a.ec) >= 0) return 'reject';
   if (a.st === 0 || (a.st >= 500 && a.st <= 599)) return 'unknown';

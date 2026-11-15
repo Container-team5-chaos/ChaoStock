@@ -24,6 +24,7 @@ from types import SimpleNamespace
 import pytest
 
 from orchestrator.judge import db as D
+from orchestrator.judge import gather
 from orchestrator.judge import reasons as R
 from orchestrator.judge.criteria import load_criteria
 from orchestrator.judge.invariants import (
@@ -380,6 +381,16 @@ def test_run_key_counts_use_full_key_format(fresh_db):
     _, snap = _snapshot()
     assert run_key_counts(snap, RUN) == {"orders": 8, "keys": 8, "filled": 7}
     assert run_key_counts(snap, TWIN) == {"orders": 2, "keys": 2, "filled": 2}
+
+
+def test_pending_count_is_this_run_only(fresh_db):
+    """collect 정산 대기: 이 run의 pending만 센다(filled, 접두어가 겹치는 TWIN의 pending은 뺀다)."""
+    _psql(
+        "INSERT INTO orders (client_order_id, user_id, market, side, volume, status) "
+        f"VALUES ({_q(_rk(500, 3, TWIN))}, 'user-0500', {_q(MARKET)}, 'bid', 0.1, 'pending');"
+    )
+    ctx = SimpleNamespace(run_id=RUN, db=TARGET)
+    assert gather._pending(ctx, Transports.for_local_pg(CONTAINER)) == 1
 
 
 def test_default_yaml_items_pass(fresh_db):
