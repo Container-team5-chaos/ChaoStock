@@ -29,7 +29,7 @@ D는 pending/unknown 주문의 금액·수량을 예약하고 filled 확인 후 
 
 ## 로컬 실행 — Bash/WSL
 
-레포 루트에서 다음을 실행한다. 전용 PostgreSQL은 localhost:15432로 열려 기존 kind DB와 분리된다.
+레포 루트에서 다음을 실행한다. 전용 PostgreSQL은 localhost:15432로 열려 기존 minikube DB와 분리된다.
 
 ```bash
 cd workloads/adapter
@@ -57,7 +57,7 @@ PowerShell에서는 `python -m venv .venv`, `.\.venv\Scripts\Activate.ps1`을 �
 export 대신 `$env:DATABASE_URL='...'`, `$env:BROKER_URL='...'`, `$env:PORT='8001'`로 설정한다.
 API를 실행하는 Python에 패키지를 설치해야 하며 WSL/Windows 가상환경은 공유하지 않는다.
 
-## kind 배포
+## minikube 배포
 
 기존 `infra/local/up.sh`로 exchange의 DB와 Secret을 먼저 준비한다.
 
@@ -65,7 +65,7 @@ API를 실행하는 Python에 패키지를 설치해야 하며 WSL/Windows 가�
 bash workloads/adapter/deploy-local.sh
 # 브로커 주소 변경 예시
 bash workloads/adapter/deploy-local.sh --set config.brokerUrl=http://mock-broker:8000
-kubectl --context kind-chaos-lab -n exchange port-forward svc/adapter 8001:8000
+kubectl --context chaos-lab -n exchange port-forward svc/adapter 8001:8000
 ```
 
 init container가 전용 adapter_orders와 인덱스를 준비하며 기존 거래/시세 테이블은 수정하지 않는다.
@@ -73,7 +73,7 @@ init container가 전용 adapter_orders와 인덱스를 준비하며 기존 거�
 Pod 보안 설정은 non-root, 읽기 전용 파일시스템, API 토큰 자동 마운트 해제다.
 ServiceMonitor가 /metrics/를 5초마다 수집한다. Prometheus Operator가 없으면
 배포 인자에 `--set serviceMonitor.enabled=false`를 추가한다.
-배포 스크립트는 이미지를 빌드·kind에 로드한 뒤 Helm으로 적용하고 같은 태그도 재시작한다.
+배포 스크립트는 이미지를 빌드·minikube에 로드한 뒤 Helm으로 적용하고 같은 태그도 재시작한다.
 이미지 빌드는 Dockerfile·requirements.txt·adapter 소스만 tar로 전달한다.
 WSL의 /mnt/c에서 Windows가 만든 pytest 캐시의 xattr 권한 오류가 발생해도 캐시를 탐색하지 않는다.
 

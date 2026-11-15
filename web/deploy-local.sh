@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 데모 화면과 C의 푸시 서버를 로컬 kind 클러스터(exchange 네임스페이스)에 배포
-# 열기: kubectl --context kind-chaos-lab -n exchange port-forward svc/web 8080:80 → http://localhost:8080
+# 데모 화면과 C의 푸시 서버를 로컬 minikube 클러스터(exchange 네임스페이스)에 배포
+# 열기: kubectl --context chaos-lab -n exchange port-forward svc/web 8080:80 → http://localhost:8080
 set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-chaos-lab}"
-CONTEXT="kind-${CLUSTER_NAME}"
+CONTEXT="$CLUSTER_NAME" # minikube 프로필 이름 = kubectl context
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TAG="${TAG:-dev}"
 

@@ -16,7 +16,7 @@ Upbit → collector → Redis SET + PUBLISH → push-server → nginx /ws → we
 ```bash
 # 이미 collector/Redis/order가 실행 중이면 아래 한 번으로 push + web 교체
 bash web/deploy-local.sh
-kubectl --context kind-chaos-lab -n exchange port-forward svc/web 8080:80
+kubectl --context chaos-lab -n exchange port-forward svc/web 8080:80
 # http://localhost:8080
 
 # 전체 환경을 처음 구성하는 경우 (실제 시세)
@@ -108,7 +108,7 @@ WEB_BASE_URL=http://localhost:8080 python -m pytest tests/test_web.py -q
 
 # 선택: 로컬 데모 클러스터 장애 복구 테스트 (아래 주의 사항 확인)
 RUN_CLUSTER_TESTS=1 WEB_BASE_URL=http://localhost:8080 \
-  TEST_KUBE_CONTEXT=kind-chaos-lab python -m pytest tests/test_cluster_recovery.py -q
+  TEST_KUBE_CONTEXT=chaos-lab python -m pytest tests/test_cluster_recovery.py -q
 ```
 
 실시간 웹 테스트는 실제 collector 또는 시세 stub이 갱신 중이어야 한다.
@@ -119,7 +119,7 @@ Windows용 Chromium 설치와 WSL용 설치는 별개
 단위 테스트는 잘못된 가격 차단·최신가 큐·전송 시간 제한·readiness를,
 실제 Redis 테스트는 최초 스냅샷·여러 화면 전송·연결 정리·시세 없음/지연·구독 단절 복구를 확인한다.
 
-`test_cluster_recovery.py`는 명시적으로 켰을 때만 실행된다. `kind-`로 시작하는 로컬 context에서
+`test_cluster_recovery.py`는 명시적으로 켰을 때만 실행된다. 로컬 minikube context(`chaos-lab`)에서만
 user-1000의 모의 매수 주문 한 건을 만들고 collector를 잠시 중단한 뒤 복원하며,
 push-server·Redis Deployment를 재시작한다. Redis는 영속 저장소가 없어 재시작 때 캐시가 사라지고
 collector가 다시 채운다. 진행 중인 실험이 없는 데모 클러스터에서만 실행한다.

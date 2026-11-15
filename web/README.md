@@ -36,7 +36,7 @@
 infra/local/up.sh                    # 로컬 환경
 workloads/order/deploy-local.sh      # 주문 서비스 (D)
 bash web/deploy-local.sh             # 화면 + 정식 푸시 서버
-kubectl --context kind-chaos-lab -n exchange port-forward svc/web 8080:80
+kubectl --context chaos-lab -n exchange port-forward svc/web 8080:80
 # 브라우저: http://localhost:8080
 ```
 

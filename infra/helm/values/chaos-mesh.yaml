@@ -1,11 +1,11 @@
-# Chaos Mesh (chart 2.8.7) — 로컬 kind용
+# Chaos Mesh (chart 2.8.7) — 로컬 minikube용
 
 controllerManager:
   # EK: 3개 + leader election (로컬 1개)
   replicaCount: 1
 
 chaosDaemon:
-  # kind 노드: containerd 사용 (docker로 두면 NetworkChaos 등이 실패)
+  # minikube를 --container-runtime=containerd로 띄움 (up.sh). docker 런타임이면 NetworkChaos 등이 실패
   runtime: containerd
   socketPath: /run/containerd/containerd.sock
 

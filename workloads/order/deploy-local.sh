@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 주문 서비스를 로컬 kind 클러스터(exchange 네임스페이스)에 배포
+# 주문 서비스를 로컬 minikube 클러스터(exchange 네임스페이스)에 배포
 #   workloads/order/deploy-local.sh                 # 회복탄력성 설정 켠 상태
 #   workloads/order/deploy-local.sh baseline        # 개선 전 비교용
 set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-chaos-lab}"
-CONTEXT="kind-${CLUSTER_NAME}"
+CONTEXT="$CLUSTER_NAME" # minikube 프로필 이름 = kubectl context
 DIR="$(cd "$(dirname "$0")" && pwd)"
 TAG="${TAG:-dev}"
 
@@ -18,8 +18,8 @@ fi
 echo "==> 이미지 빌드: chaos-lab-order:$TAG"
 docker build -t "chaos-lab-order:$TAG" "$DIR"
 
-echo "==> kind 노드에 이미지 넣기"
-kind load docker-image "chaos-lab-order:$TAG" --name "$CLUSTER_NAME"
+echo "==> minikube 노드에 이미지 넣기"
+minikube image load "chaos-lab-order:$TAG" -p "$CLUSTER_NAME"
 
 echo "==> Helm 배포 (namespace: exchange)"
 helm --kube-context "$CONTEXT" upgrade --install order "$DIR/chart" \
