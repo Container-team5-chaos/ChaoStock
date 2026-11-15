@@ -15,7 +15,7 @@ set -uo pipefail
 export MSYS_NO_PATHCONV=1 # Git Bash가 /api/... 인자를 Windows 경로로 바꾸지 않게
 
 CLUSTER_NAME="${CLUSTER_NAME:-chaos-lab}"
-CONTEXT="kind-${CLUSTER_NAME}"
+CONTEXT="$CLUSTER_NAME" # minikube 프로필 이름 = kubectl context
 LABEL_KEY="chaos/run-id" # orchestrator(A)의 inject.LABEL_KEY와 같아야 함
 RUN_ID="smoke-$(date +%s)"
 SMOKE_NS="$RUN_ID" # 실행마다 새 Namespace → 이전 실행의 Terminating과 충돌하지 않음

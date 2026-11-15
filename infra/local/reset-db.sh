@@ -8,7 +8,7 @@
 set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-chaos-lab}"
-CONTEXT="kind-${CLUSTER_NAME}"
+CONTEXT="$CLUSTER_NAME" # minikube 프로필 이름 = kubectl context
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCHEMA_SQL="$ROOT/workloads/order/db/schema.sql"
 SEED_SQL="$ROOT/workloads/order/db/seed.sql"

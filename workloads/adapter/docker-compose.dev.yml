@@ -1,4 +1,4 @@
-# 기존 kind DB와 분리된 adapter 개발/통합 테스트용 PostgreSQL.
+# 기존 minikube DB와 분리된 adapter 개발/통합 테스트용 PostgreSQL.
 services:
   postgres:
     image: postgres:16-alpine

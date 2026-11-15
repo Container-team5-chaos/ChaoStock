@@ -1,4 +1,4 @@
-"""Opt-in test: changes only the explicitly selected local kind cluster, restores replicas.
+"""Opt-in test: changes only the explicitly selected local minikube cluster (chaos-lab), restores replicas.
 
 Run against a disposable/demo cluster. Places one simulated order for user-1000.
 """
@@ -18,9 +18,11 @@ pytestmark = pytest.mark.skipif(
 
 
 def kube(*args):
-    context = os.getenv("TEST_KUBE_CONTEXT", "kind-chaos-lab")
-    if not context.startswith("kind-"):
-        raise ValueError("Recovery test is restricted to a local kind context")
+    context = os.getenv("TEST_KUBE_CONTEXT", "chaos-lab")
+    if context != "chaos-lab":
+        raise ValueError(
+            "Recovery test is restricted to the local minikube context (chaos-lab)"
+        )
     command = (["wsl", "--exec"] if os.name == "nt" else []) + [
         "kubectl",
         "--context",

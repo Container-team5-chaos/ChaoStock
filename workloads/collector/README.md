@@ -22,10 +22,10 @@ Python 3.11 이상을 지원하며 컨테이너는 Python 3.12를 사용한다.
 bash infra/local/up.sh
 
 docker build -t chaos-lab-collector:dev workloads/collector
-kind load docker-image chaos-lab-collector:dev --name chaos-lab
-kubectl --context kind-chaos-lab apply -f infra/k8s/collector/
-kubectl --context kind-chaos-lab -n exchange rollout status deployment/collector --timeout=180s
-kubectl --context kind-chaos-lab -n exchange logs -f deployment/collector -c collector
+minikube image load chaos-lab-collector:dev -p chaos-lab
+kubectl --context chaos-lab apply -f infra/k8s/collector/
+kubectl --context chaos-lab -n exchange rollout status deployment/collector --timeout=180s
+kubectl --context chaos-lab -n exchange logs -f deployment/collector -c collector
 ```
 
 `infra/local/up.sh`는 기존처럼 인프라만 준비한다. 수집기 배포는 위의 별도 명령으로 수행한다.
@@ -48,21 +48,21 @@ Pod는 `app: collector`, 단일 replica, `Recreate` 전략을 사용한다. 업�
 카오스 주입 대상으로 사용할 때 namespace는 `exchange`, label selector는 `app: collector`를 지정한다.
 DB/Redis의 기존 `chaos.exchange/protected` 라벨은 유지하고 수집기에는 붙이지 않는다.
 
-같은 `dev` 태그로 이미지를 다시 빌드했다면 kind에 다시 로드한 뒤 재시작한다.
+같은 `dev` 태그로 이미지를 다시 빌드했다면 minikube에 다시 로드한 뒤 재시작한다.
 
 ```bash
-kubectl --context kind-chaos-lab -n exchange rollout restart deployment/collector
+kubectl --context chaos-lab -n exchange rollout restart deployment/collector
 ```
 
-커스텀 kind 이름을 사용했다면 위 명령의 `chaos-lab`과 `kind-chaos-lab`을 해당 이름/context로 바꾼다.
+다른 minikube 프로필 이름을 사용했다면 위 명령의 `chaos-lab`을 해당 이름으로 바꾼다 (프로필 이름 = context 이름).
 공유 클러스터에서는 manifest의 두 이미지(init/main)를 같은 레지스트리 이미지의 고정 태그로 바꾼다.
 
 ## 수신 확인
 
 ```bash
-kubectl --context kind-chaos-lab -n exchange exec deployment/redis -- redis-cli GET price:KRW-BTC
-kubectl --context kind-chaos-lab -n exchange exec deployment/redis -- redis-cli SUBSCRIBE price:KRW-BTC
-kubectl --context kind-chaos-lab -n exchange exec statefulset/postgres -- \
+kubectl --context chaos-lab -n exchange exec deployment/redis -- redis-cli GET price:KRW-BTC
+kubectl --context chaos-lab -n exchange exec deployment/redis -- redis-cli SUBSCRIBE price:KRW-BTC
+kubectl --context chaos-lab -n exchange exec statefulset/postgres -- \
   psql -U exchange -d exchange -c 'SELECT market, price, received_at, source_ts FROM ticks ORDER BY received_at DESC LIMIT 5;'
 ```
 
@@ -74,14 +74,14 @@ Pub/Sub는 영속 메시지 큐가 아니다. 구독자는 재연결 시 최신�
 기존 클러스터 저장소에 각각 별도 터미널로 port-forward한다.
 
 ```bash
-kubectl --context kind-chaos-lab -n exchange port-forward svc/postgres 5432
-kubectl --context kind-chaos-lab -n exchange port-forward svc/redis 6379
+kubectl --context chaos-lab -n exchange port-forward svc/postgres 5432
+kubectl --context chaos-lab -n exchange port-forward svc/redis 6379
 ```
 
 로컬 디버깅 중에는 클러스터 수집기를 `replicas=0`으로 내려 중복 수집을 방지한다.
 
 ```bash
-kubectl --context kind-chaos-lab -n exchange scale deployment/collector --replicas=0
+kubectl --context chaos-lab -n exchange scale deployment/collector --replicas=0
 cd workloads/collector
 python3 -m venv .venv-wsl
 source .venv-wsl/bin/activate

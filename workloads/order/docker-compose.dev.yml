@@ -1,4 +1,4 @@
-# 로컬 개발용! E의 kind 환경이 나오기 전까지 PostgreSQL과 Redis만 띄움
+# 로컬 개발용! E의 minikube 환경이 없을 때 PostgreSQL과 Redis만 띄움
 services:
   postgres:
     image: postgres:16

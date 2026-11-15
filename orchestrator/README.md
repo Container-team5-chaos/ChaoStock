@@ -122,11 +122,11 @@ python -m orchestrator.main recover                  # 정리만
 ```bash
 # 레포 루트에서
 docker build -f orchestrator/Dockerfile -t chaos-orchestrator:dev .
-kind load docker-image chaos-orchestrator:dev --name chaos-lab
-kubectl --context kind-chaos-lab apply -f orchestrator/k8s/rbac.yaml -f orchestrator/k8s/pvc.yaml
+minikube image load chaos-orchestrator:dev -p chaos-lab
+kubectl --context chaos-lab apply -f orchestrator/k8s/rbac.yaml -f orchestrator/k8s/pvc.yaml
 RUN_ID=r-$(date +%m%d%H%M)
-sed "s/__RUN_ID__/$RUN_ID/" orchestrator/k8s/job.yaml | kubectl --context kind-chaos-lab apply -f -
-kubectl --context kind-chaos-lab -n exchange logs -f job/chaos-run-$RUN_ID
+sed "s/__RUN_ID__/$RUN_ID/" orchestrator/k8s/job.yaml | kubectl --context chaos-lab apply -f -
+kubectl --context chaos-lab -n exchange logs -f job/chaos-run-$RUN_ID
 ```
 
 5-b 확인: OBSERVING 중에 Pod를 지우고 대체 Pod 로그에 `result=ABORTED  cleanup=OK`가 나오는지,

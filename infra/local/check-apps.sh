@@ -17,7 +17,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CLUSTER_NAME="${CLUSTER_NAME:-chaos-lab}"
-CTX="kind-${CLUSTER_NAME}"
+CTX="$CLUSTER_NAME" # minikube 프로필 이름 = kubectl context
 OUT="$HOME/chaos-test/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUT"
 RESULT="$OUT/result.txt"
@@ -89,7 +89,7 @@ step "0. 준비물"
 grep -q -- "--with-apps" "$ROOT/infra/local/up.sh" && ok "up.sh에 --with-apps 있음" || { bad "예전 up.sh (--with-apps 없음)"; exit 1; }
 [ -f "$ROOT/web/deploy-local.sh" ] && ok "web/ 있음" || bad "web/deploy-local.sh 없음"
 missing=()
-for b in docker kind kubectl helm curl; do command -v "$b" >/dev/null 2>&1 || missing+=("$b"); done
+for b in docker minikube kubectl helm curl; do command -v "$b" >/dev/null 2>&1 || missing+=("$b"); done
 [ ${#missing[@]} -eq 0 ] && ok "도구 설치됨" || { bad "설치 필요: ${missing[*]}"; exit 1; }
 docker info >/dev/null 2>&1 && ok "Docker 실행 중" || { bad "Docker Desktop을 켜세요"; exit 1; }
 

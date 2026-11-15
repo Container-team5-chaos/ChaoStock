@@ -1,12 +1,13 @@
-"""ChaosMeshInjector kind 통합 테스트 — 실제 Chaos Mesh에서 apply·cleanup을 확인한다.
+"""ChaosMeshInjector 클러스터 통합 테스트 — 실제 Chaos Mesh에서 apply·cleanup을 확인한다.
 
 기본 pytest 실행에서는 건너뛴다. 실행하려면 (Git Bash, 레포 루트):
 
     source orchestrator/.venv/Scripts/activate   # orchestrator 작업 전 항상
     cd orchestrator
-    KIND_TESTS=1 python -m pytest tests/test_inject_kind.py -v
+    CLUSTER_TESTS=1 python -m pytest tests/test_inject_kind.py -v
 
-필요한 것: kind 클러스터(kind-chaos-lab) + Chaos Mesh. infra/local/README.md 참고.
+필요한 것: 로컬 minikube 클러스터(context chaos-lab) + Chaos Mesh. infra/local/README.md 참고.
+(예전 이름 KIND_TESTS=1, KIND_CONTEXT도 그대로 받는다)
 테스트마다 새 Namespace를 만들고 끝나면 지운다. Chaos 리소스도 그 Namespace 안에만 만든다.
 """
 
@@ -15,8 +16,8 @@ import time
 
 import pytest
 
-if os.environ.get("KIND_TESTS") != "1":
-    pytest.skip("KIND_TESTS=1 일 때만 실행", allow_module_level=True)
+if "1" not in (os.environ.get("CLUSTER_TESTS"), os.environ.get("KIND_TESTS")):
+    pytest.skip("CLUSTER_TESTS=1 일 때만 실행", allow_module_level=True)
 
 k8s = pytest.importorskip("kubernetes", reason="pip install -e '.[k8s]' 필요")
 from kubernetes.client.rest import ApiException  # noqa: E402
@@ -27,7 +28,9 @@ from orchestrator.inject import (  # noqa: E402
     ChaosMeshInjector,
 )
 
-CONTEXT = os.environ.get("KIND_CONTEXT", "kind-chaos-lab")
+CONTEXT = (
+    os.environ.get("CLUSTER_CONTEXT") or os.environ.get("KIND_CONTEXT") or "chaos-lab"
+)
 IMAGE = "registry.k8s.io/pause:3.10"
 READY_TIMEOUT = 180  # 이미지 pull 포함
 INJECT_TIMEOUT = 60  # 주입이 적용될 때까지 기다리는 상한(초)
@@ -45,8 +48,13 @@ def wait_until(predicate, timeout: float, interval: float = 2.0) -> bool:
 
 @pytest.fixture(scope="module")
 def apis():
-    if not CONTEXT.startswith("kind-"):
-        pytest.fail(f"kind 클러스터에서만 실행한다 (KIND_CONTEXT={CONTEXT})")
+    # 로컬 minikube에서만 실행 (minikube가 kubeconfig context에 남기는 provider 표시로 확인)
+    contexts, _ = k8s.config.list_kube_config_contexts()
+    ctx = next((c for c in contexts if c["name"] == CONTEXT), None)
+    if ctx is None or "minikube.sigs.k8s.io" not in str(ctx):
+        pytest.fail(
+            f"로컬 minikube 클러스터에서만 실행한다 (CLUSTER_CONTEXT={CONTEXT})"
+        )
     k8s.config.load_kube_config(context=CONTEXT)
     return k8s.client.CoreV1Api(), k8s.client.AppsV1Api(), k8s.client.CustomObjectsApi()
 

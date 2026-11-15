@@ -6,7 +6,7 @@ replicaCount: 2
 image:
   repository: chaos-lab-order
   tag: dev
-  pullPolicy: IfNotPresent   # kind에 직접 넣은 이미지를 쓰므로 받으러 가지 않음
+  pullPolicy: IfNotPresent   # minikube에 직접 넣은 이미지를 쓰므로 받으러 가지 않음
 
 service:
   port: 8000

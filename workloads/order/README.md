@@ -140,7 +140,7 @@ python -m app
 여러 Pod가 동시에 시작해도 PostgreSQL advisory lock으로 스키마 변경을 직렬화한다.
 DB 사용자는 해당 테이블 생성/변경 권한이 필요하다. Redis 가격은 수집기 또는 stub이 공급해야 한다.
 
-kind의 기존 주문 서비스가 예전 이미지라면 예약을 인식하도록 먼저 새 코드를 로컬 모드로 전체 배포한다.
+minikube의 기존 주문 서비스가 예전 이미지라면 예약을 인식하도록 먼저 새 코드를 로컬 모드로 전체 배포한다.
 그 뒤 budget 계약을 지원하는 adapter/mock-broker를 준비하고 외부 모드를 활성화한다.
 
 ```bash
@@ -149,7 +149,7 @@ bash workloads/order/deploy-local.sh
 bash workloads/adapter/deploy-local.sh
 # mock-broker 준비 후
 bash workloads/order/deploy-local.sh -f workloads/order/chart/values-adapter.yaml
-kubectl --context kind-chaos-lab -n exchange port-forward svc/order 8000:8000
+kubectl --context chaos-lab -n exchange port-forward svc/order 8000:8000
 ```
 
 ADAPTER_URL 미설정으로 전환해도 이전 pending/unknown 주문이 취소되거나 예약이 해제되지 않는다.

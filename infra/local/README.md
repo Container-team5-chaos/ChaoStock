@@ -1,10 +1,10 @@
 # 로컬 실험 환경
 
-스크립트 하나로 kind 클러스터에 실험에 필요한 기반을 띄운다.
+스크립트 하나로 minikube 클러스터에 실험에 필요한 기반을 띄운다.
 
 | 구성 요소 | Namespace | 버전 | 용도 |
 | --- | --- | --- | --- |
-| kind (control-plane 1 + worker 1) | - | 설치된 kind 기본 노드 이미지 | 로컬 클러스터 |
+| minikube (노드 2, containerd) | - | 설치된 minikube 기본 Kubernetes 버전 (`MINIKUBE_K8S_VERSION`으로 고정 가능) | 로컬 클러스터 (프로필·context 이름 `chaos-lab`) |
 | kube-prometheus-stack | `monitoring` | chart 92.21.1 | Prometheus, Grafana, kube-state-metrics |
 | Chaos Mesh | `chaos-mesh` | chart 2.8.7 | PodChaos, NetworkChaos |
 | metrics-server | `kube-system` | chart 3.14.0 | HPA가 Pod CPU를 읽음 (`kubectl top`) |
@@ -14,13 +14,15 @@
 ## 준비물
 
 - Docker (실행 중이어야 함)
-- [kind](https://kind.sigs.k8s.io/), kubectl, helm 3
+- [minikube](https://minikube.sigs.k8s.io/), kubectl, helm 3
 - 메모리 여유 6GB 이상 권장
 
 ### Windows
 
 - Docker Desktop을 켜 두고, Git Bash 또는 WSL2 터미널에서 실행한다. PowerShell과 cmd에서는 실행할 수 없다.
-- kind, kubectl, helm은 `winget install Kubernetes.kind Kubernetes.kubectl Helm.Helm`으로 설치할 수 있다.
+- minikube, kubectl, helm은 `winget install Kubernetes.minikube Kubernetes.kubectl Helm.Helm`으로 설치할 수 있다.
+- minikube는 Docker 드라이버(`--driver=docker`), containerd 런타임으로 띄운다. Chaos Mesh가 containerd를 쓰도록 설정돼 있어 런타임을 바꾸면 NetworkChaos가 실패한다.
+- 기본 노드 2대 × CPU 2·메모리 3GB. Docker Desktop에 그보다 많은 자원을 줘야 한다. 줄이려면 `MINIKUBE_MEMORY=2560`처럼 주고 처음부터 다시 만든다(`down.sh` 후 `up.sh`).
 - 실행 권한이 없다고 나오는 경우 `bash infra/local/up.sh`처럼 bash로 직접 실행한다.
 
 ## 사용법
@@ -35,7 +37,7 @@ infra/local/down.sh            # 삭제
 
 | 순서 | 대상 | 방법 |
 | --- | --- | --- |
-| 1 | 수집기 (C) | 이미지 빌드 → kind 로드 → `infra/k8s/collector/` 적용 |
+| 1 | 수집기 (C) | 이미지 빌드 → minikube 로드 → `infra/k8s/collector/` 적용 |
 | 2 | 주문 서비스 (D) | `workloads/order/deploy-local.sh` 그대로 호출 |
 | 3 | 푸시 서버 (C) + 데모 화면 (E) | `web/deploy-local.sh`가 정식 `push-server`를 먼저 배포한 뒤 nginx 연결 |
 
@@ -81,7 +83,8 @@ LITE=1 infra/local/check-apps.sh          # 띄우고 확인까지
 결과는 `~/chaos-test/<시각>/result.txt`. 이미 띄운 클러스터에서 확인만 할 때는 `SKIP_UP=1`.
 
 - `up.sh`: 끝에 접속 주소와 port-forward 명령 출력
-- 모든 kubectl/helm 호출은 `kind-chaos-lab` context를 명시하므로 다른 클러스터를 건드리지 않음
+- 모든 kubectl/helm 호출은 `chaos-lab` context(minikube 프로필 이름)를 명시하므로 다른 클러스터를 건드리지 않음
+- PostgreSQL 볼륨은 노드에 고정되는 `local-path` StorageClass(minikube `storage-provisioner-rancher` 애드온)를 쓴다. 기본 `standard`(hostpath)는 노드 2대에서 볼륨 위치를 보장하지 못한다
 - 클러스터 이름을 바꾸려면 `CLUSTER_NAME=my-lab infra/local/up.sh`
 
 ## 접속
@@ -92,14 +95,14 @@ LITE=1 infra/local/check-apps.sh          # 띄우고 확인까지
 
 | 대상 | 클러스터 내부 주소 | 내 PC에서 열기 |
 | --- | --- | --- |
-| PostgreSQL | `postgres.exchange.svc.cluster.local:5432` | `kubectl --context kind-chaos-lab -n exchange port-forward svc/postgres 5432` |
-| Redis | `redis.exchange.svc.cluster.local:6379` | `kubectl --context kind-chaos-lab -n exchange port-forward svc/redis 6379` |
-| Prometheus | `kps-kube-prometheus-stack-prometheus.monitoring.svc:9090` | `kubectl --context kind-chaos-lab -n monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 9090` |
-| Grafana | - | `kubectl --context kind-chaos-lab -n monitoring port-forward svc/kps-grafana 3000:80` (admin / admin) |
-| Chaos Dashboard | - | `kubectl --context kind-chaos-lab -n chaos-mesh port-forward svc/chaos-dashboard 2333` |
-| 주문 API (`--with-apps`) | `order.exchange.svc.cluster.local:8000` | `kubectl --context kind-chaos-lab -n exchange port-forward svc/order 8000` |
-| adapter (`ORDER_MODE=adapter`) | `adapter.exchange.svc.cluster.local:8000` | `kubectl --context kind-chaos-lab -n exchange port-forward svc/adapter 8001:8000` |
-| 데모 화면 (`--with-apps`) | `web.exchange.svc.cluster.local:80` | `kubectl --context kind-chaos-lab -n exchange port-forward svc/web 8080:80` |
+| PostgreSQL | `postgres.exchange.svc.cluster.local:5432` | `kubectl --context chaos-lab -n exchange port-forward svc/postgres 5432` |
+| Redis | `redis.exchange.svc.cluster.local:6379` | `kubectl --context chaos-lab -n exchange port-forward svc/redis 6379` |
+| Prometheus | `kps-kube-prometheus-stack-prometheus.monitoring.svc:9090` | `kubectl --context chaos-lab -n monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 9090` |
+| Grafana | - | `kubectl --context chaos-lab -n monitoring port-forward svc/kps-grafana 3000:80` (admin / admin) |
+| Chaos Dashboard | - | `kubectl --context chaos-lab -n chaos-mesh port-forward svc/chaos-dashboard 2333` |
+| 주문 API (`--with-apps`) | `order.exchange.svc.cluster.local:8000` | `kubectl --context chaos-lab -n exchange port-forward svc/order 8000` |
+| adapter (`ORDER_MODE=adapter`) | `adapter.exchange.svc.cluster.local:8000` | `kubectl --context chaos-lab -n exchange port-forward svc/adapter 8001:8000` |
+| 데모 화면 (`--with-apps`) | `web.exchange.svc.cluster.local:80` | `kubectl --context chaos-lab -n exchange port-forward svc/web 8080:80` |
 
 ## 다른 역할이 알아야 할 것
 
@@ -132,10 +135,12 @@ Grafana `admin/admin`, DB `exchange/exchange`, Chaos Dashboard 인증 없음. �
 | 증상 | 확인할 것 |
 | --- | --- |
 | `Docker 데몬이 실행 중이 아닙니다` | Docker Desktop이 켜져 있는지 |
-| helm 설치가 `--wait` 시간 초과 | `kubectl --context kind-chaos-lab get pods -A`로 Pending·ImagePullBackOff Pod 확인. Docker Desktop 메모리 할당 늘리기 |
-| control-plane 컴포넌트가 계속 재시작 | CPU 부족. Docker CPU를 늘리거나 노드 수를 줄인다(현재가 줄인 버전입니다.) |
+| helm 설치가 `--wait` 시간 초과 | `kubectl --context chaos-lab get pods -A`로 Pending·ImagePullBackOff Pod 확인. Docker Desktop 메모리 할당 늘리기 |
+| control-plane 컴포넌트가 계속 재시작 | CPU·메모리 부족. Docker Desktop 자원을 늘리거나 `MINIKUBE_MEMORY`를 조정해 `down.sh` 후 다시 만든다. 노드 1대(`MINIKUBE_NODES=1`)로 줄이면 Pod 1개 종료 실험의 의미가 약해진다 |
+| `minikube start`가 `--driver=docker` 오류 | Docker Desktop이 켜져 있는지 확인. 다른 드라이버를 쓰려면 `MINIKUBE_DRIVER` (containerd 런타임은 유지) |
+| 예전 kind 클러스터가 남아 있음 | `kind delete cluster --name chaos-lab` (kind를 지웠다면 `docker rm -f chaos-lab-control-plane chaos-lab-worker`) |
 | `chaos-daemon` 이 Ready가 안 됨 | values의 `chaosDaemon.runtime: containerd`, `socketPath: /run/containerd/containerd.sock` 확인 |
-| HPA `TARGETS`가 `<unknown>` | metrics-server 확인: `kubectl --context kind-chaos-lab top pods -n exchange`. 설치 직후 1분 정도는 지표가 없을 수 있음 |
-| `60초 동안 신선한 시세가 없습니다` | `kubectl --context kind-chaos-lab -n exchange logs deploy/collector -c collector`. 업비트 접속이 안 되면 `PRICE_STUB=1`로 다시 실행 |
-| `ticks에 최근 30초 시세가 없습니다` 경고 | `kubectl --context kind-chaos-lab -n exchange logs deploy/collector -c collector`로 DB 저장 오류 확인. 실험은 되지만 B의 fresh 판정은 NOT_EVALUATED |
+| HPA `TARGETS`가 `<unknown>` | metrics-server 확인: `kubectl --context chaos-lab top pods -n exchange`. 설치 직후 1분 정도는 지표가 없을 수 있음 |
+| `60초 동안 신선한 시세가 없습니다` | `kubectl --context chaos-lab -n exchange logs deploy/collector -c collector`. 업비트 접속이 안 되면 `PRICE_STUB=1`로 다시 실행 |
+| `ticks에 최근 30초 시세가 없습니다` 경고 | `kubectl --context chaos-lab -n exchange logs deploy/collector -c collector`로 DB 저장 오류 확인. 실험은 되지만 B의 fresh 판정은 NOT_EVALUATED |
 | 처음부터 다시 | `infra/local/down.sh` 후 `infra/local/up.sh` |

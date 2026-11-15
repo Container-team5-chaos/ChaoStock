@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 CLUSTER_NAME="${CLUSTER_NAME:-chaos-lab}"
-CONTEXT="kind-${CLUSTER_NAME}"
+CONTEXT="$CLUSTER_NAME" # minikube 프로필 이름 = kubectl context
 DIR="$(cd "$(dirname "$0")" && pwd)"
 TAG="${TAG:-dev}"
 # WSL /mnt/c의 Windows 생성 캐시에서 xattr 권한 오류가 나지 않도록
@@ -9,7 +9,7 @@ TAG="${TAG:-dev}"
 tar -C "$DIR" --exclude='__pycache__' --exclude='*.pyc' \
   -cf - Dockerfile requirements.txt adapter \
   | docker build -t "chaos-lab-adapter:$TAG" -
-kind load docker-image "chaos-lab-adapter:$TAG" --name "$CLUSTER_NAME"
+minikube image load "chaos-lab-adapter:$TAG" -p "$CLUSTER_NAME"
 helm --kube-context "$CONTEXT" upgrade --install adapter "$DIR/chart" \
   --namespace exchange --set image.tag="$TAG" "$@" --wait --timeout 180s
 kubectl --context "$CONTEXT" -n exchange rollout restart deployment/adapter

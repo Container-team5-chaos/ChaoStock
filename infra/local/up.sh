@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 로컬 실험 환경을 한 번에 띄움: kind + Prometheus/Grafana + Chaos Mesh + PostgreSQL + Redis
+# 로컬 실험 환경을 한 번에 띄움: minikube + Prometheus/Grafana + Chaos Mesh + PostgreSQL + Redis
 # --with-apps 를 주면 수집기(C)·주문 서비스(D)·데모 화면(E)까지 빌드해서 배포
 # 여러 번 실행해도 같은 결과가 되도록 작성 (이미 있는 것은 건너뛰거나 upgrade)
 #
@@ -8,7 +8,10 @@
 #   infra/local/up.sh --with-apps   # 인프라 + 앱 (시세는 실제 수집기)
 #   LITE=1 infra/local/up.sh --with-apps   # 자원이 부족할 때: Prometheus·Grafana·Chaos Mesh 없이 앱만 확인
 # 환경 변수:
-#   CLUSTER_NAME  기본 chaos-lab
+#   CLUSTER_NAME  minikube 프로필 이름 = kubectl context 이름 (기본 chaos-lab)
+#   MINIKUBE_NODES / MINIKUBE_CPUS / MINIKUBE_MEMORY   노드 수(기본 2)와 노드당 CPU(2)·메모리(MB, 3072)
+#   MINIKUBE_DRIVER   기본 docker   MINIKUBE_K8S_VERSION   비우면 minikube 기본 버전
+#   (노드 수·CPU·메모리는 처음 만들 때만 적용. 바꾸려면 down.sh 후 다시 실행)
 #   LITE          1이면 Prometheus·Grafana·Chaos Mesh·metrics-server를 설치하지 않음 (장애 주입·지표 수집 불가)
 #   PRICE_STUB    1이면 시세 stub 배포, 0이면 제거. 기본: 인프라만 1(수집기가 이미 있으면 0), --with-apps 0
 #   ORDER_MODE    (--with-apps 일 때) baseline: 주문 서비스를 개선 전 설정으로
@@ -17,13 +20,19 @@
 set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-chaos-lab}"
-CONTEXT="kind-${CLUSTER_NAME}"
+CONTEXT="$CLUSTER_NAME" # minikube는 프로필 이름이 곧 kubectl context
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # 버전 고정: 바꿀 때는 values 파일 상단 주석도 함께 수정
 KPS_CHART_VERSION="92.21.1"
 CHAOS_MESH_CHART_VERSION="2.8.7"
 METRICS_SERVER_CHART_VERSION="3.14.0"
+
+MINIKUBE_NODES="${MINIKUBE_NODES:-2}"
+MINIKUBE_CPUS="${MINIKUBE_CPUS:-2}"
+MINIKUBE_MEMORY="${MINIKUBE_MEMORY:-3072}"
+MINIKUBE_DRIVER="${MINIKUBE_DRIVER:-docker}"
+MINIKUBE_K8S_VERSION="${MINIKUBE_K8S_VERSION:-}"
 
 log() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33mwarn:\033[0m %s\n' "$*" >&2; }
@@ -34,7 +43,7 @@ for arg in "$@"; do
   case "$arg" in
     --with-apps) WITH_APPS=1 ;;
     -h | --help)
-      sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
       exit 0
       ;;
     *) die "알 수 없는 옵션: $arg (--with-apps, --help)" ;;
@@ -65,21 +74,49 @@ h() { helm --kube-context "$CONTEXT" "$@"; }
 check_deps() {
   log "필수 도구 확인"
   local missing=()
-  for bin in docker kind kubectl helm; do
+  for bin in docker minikube kubectl helm; do
     command -v "$bin" >/dev/null 2>&1 || missing+=("$bin")
   done
   [ ${#missing[@]} -eq 0 ] || die "설치 필요: ${missing[*]}"
   docker info >/dev/null 2>&1 || die "Docker 데몬이 실행 중이 아닙니다"
 }
 
+# 노드 2대: replica를 서로 다른 노드에 두고 Pod 1개만 죽이는 실험
+# 런타임은 containerd 고정 → Chaos Mesh values의 chaosDaemon.runtime과 맞춰야 함 (docker면 NetworkChaos 실패)
 create_cluster() {
-  if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
-    log "kind 클러스터 '$CLUSTER_NAME' 이미 존재 — 생성 건너뜀"
+  if minikube status -p "$CLUSTER_NAME" >/dev/null 2>&1; then
+    log "minikube 클러스터 '$CLUSTER_NAME' 이미 실행 중 — 생성 건너뜀"
   else
-    log "kind 클러스터 '$CLUSTER_NAME' 생성"
-    kind create cluster --name "$CLUSTER_NAME" --config "$ROOT/infra/local/kind-config.yaml" --wait 120s
+    log "minikube 클러스터 '$CLUSTER_NAME' 시작 (노드 $MINIKUBE_NODES, 노드당 CPU $MINIKUBE_CPUS·메모리 ${MINIKUBE_MEMORY}MB)"
+    local args=(start -p "$CLUSTER_NAME" --driver="$MINIKUBE_DRIVER" --container-runtime=containerd
+      --nodes="$MINIKUBE_NODES" --cpus="$MINIKUBE_CPUS" --memory="$MINIKUBE_MEMORY" --wait=all)
+    [ -n "$MINIKUBE_K8S_VERSION" ] && args+=(--kubernetes-version="$MINIKUBE_K8S_VERSION")
+    # 멈춰 둔 프로필이면 같은 명령이 다시 켠다 (노드 수 등은 처음 만들 때 값 유지)
+    minikube "${args[@]}"
   fi
   k wait --for=condition=Ready nodes --all --timeout=120s
+  setup_storage
+}
+
+# minikube 기본 StorageClass(standard, hostpath)는 여러 노드에서 볼륨 위치를 보장하지 못한다.
+# local-path(노드 고정) 애드온을 기본 StorageClass로 쓴다 → PostgreSQL 데이터가 노드를 옮겨 다니지 않음
+setup_storage() {
+  if [ "$(k get storageclass local-path -o jsonpath='{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}' 2>/dev/null)" = "true" ]; then
+    return
+  fi
+  log "StorageClass: local-path를 기본으로 설정"
+  minikube addons enable storage-provisioner-rancher -p "$CLUSTER_NAME"
+  local _
+  for _ in $(seq 1 30); do k get storageclass local-path >/dev/null 2>&1 && break; sleep 2; done
+  k patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+  if k get storageclass standard >/dev/null 2>&1; then
+    k patch storageclass standard -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
+  fi
+}
+
+# 로컬에서 빌드한 이미지를 클러스터 모든 노드에 넣음 (레지스트리 없이)
+load_image() {
+  minikube image load "$1" -p "$CLUSTER_NAME"
 }
 
 add_repos() {
@@ -199,11 +236,11 @@ verify() {
   [ "$failed" -eq 0 ] || die "일부 구성 요소가 준비되지 않았습니다. 위 로그를 확인하세요"
 }
 
-# 수집기(C): 이미지 빌드 → kind 노드에 로드 → 배포 (절차는 workloads/collector/README.md와 같음)
+# 수집기(C): 이미지 빌드 → minikube 노드에 로드 → 배포 (절차는 workloads/collector/README.md와 같음)
 deploy_collector() {
   log "수집기 이미지 빌드: chaos-lab-collector:dev"
   docker build -t chaos-lab-collector:dev "$ROOT/workloads/collector"
-  kind load docker-image chaos-lab-collector:dev --name "$CLUSTER_NAME"
+  load_image chaos-lab-collector:dev
   log "수집기 배포 (namespace: exchange)"
   k apply -f "$ROOT/infra/k8s/collector/"
   # 같은 dev 태그로 다시 빌드했어도 새 이미지를 쓰도록 재시작
