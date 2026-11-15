@@ -44,8 +44,8 @@
 - `intent`(보내기 전): `{type:"intent", key, acct, vu, t, body:{client_order_id, user_id, market, side, volume}}`. `key == body.client_order_id`, `acct == body.user_id`여야 한다.
 - `client_order_id` 형식: `k6-<run_id>-<vu 4자리>-<seq 6자리>`(예 `k6-demo-1106-0001-000042`). run_id를 넣어 run끼리 겹치지 않게 한다. 64자 이하다(run_id 최대 40자면 최대 55자). judge는 자릿수와 상관없이 `k6-<run_id>-<숫자>-<숫자>`를 run 키로 본다.
 - `result`(끝난 뒤): `{type:"result", key, atts:[Attempt…]}`. 같은 키로 보낸 모든 전송을 시간순으로 담는다.
-  Attempt = `{n, t0, t1, st(전송 오류는 0), ec(reason 또는 k6 error_code), ms, rp(200 본문의 replayed), raw(본문 2048자 이하)}`.
-- 재전송: 결과 불명 시도와 503 `stale_price`·`price_unavailable`에서 같은 본문·같은 키로 최대 R번(기본 3) 백오프 재전송한다. 200이나 재전송하지 않는 거절(400, 404, 409, 422)이 오면 멈춘다.
+  Attempt = `{n, t0, t1, st(전송 오류는 0), ec(reason 또는 k6 error_code), ms, rp(200·202·422 주문 본문의 replayed, 그 밖 null), raw(200·202·4xx·503 본문 2048자 이하)}`.
+- 재전송: 결과 불명 시도와 503 `stale_price`·`price_unavailable`에서 같은 본문·같은 키로 최대 R번(기본 3) 백오프 재전송한다. 200·202나 재전송하지 않는 거절(400, 404, 409, 422)이 오면 멈춘다.
 - k6는 `Idempotency-Key`·`X-Idempotency-Key` 헤더를 보내지 않는다(Go net/http가 POST를 자동 재시도하는 조건이다). 그래서 `noConnectionReuse` 강제는 필요 없다.
 
 ## 3. 시도 성격과 클라이언트 상태 K

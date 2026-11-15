@@ -1,4 +1,4 @@
-"""collect 구현: fetch → DB 스냅샷 → Pod 관측 → RELEASE 순서는 설계 5.2를 따른다.
+"""collect 구현: fetch → 정산 대기 → DB 스냅샷 → Pod 관측 → RELEASE 순서는 설계 5.2를 따른다.
 
 모듈 이름을 collect로 하면 패키지의 collect 함수를 가려서 gather로 둔다.
 """
@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
@@ -14,14 +15,25 @@ from typing import Any
 
 from . import fetch as fetch_mod
 from .criteria import RESOLVED_NAME, integrity_cfg, write_resolved
-from .db import build_bundle, exec_bundle, parse_bundle_output
+from .db import build_bundle, exec_bundle, parse_bundle_output, run_key_regex
 from .model import Criteria, RunContext, sha256_bytes
 from .transport import TransportError, Transports
 
-__all__ = ["collect", "observe_pods", "pod_counts", "snapshot_db", "write_evidence"]
+__all__ = [
+    "collect",
+    "observe_pods",
+    "pod_counts",
+    "snapshot_db",
+    "wait_settled",
+    "write_evidence",
+]
 
 QUIET_S = 10  # 늦게 끝난 주문 트랜잭션을 기다린다
 RETRY_S = 30
+SETTLE_POLL_S = 5
+SETTLE_TIMEOUT_S = (
+    180  # adapter 재시도 최악 약 131초(응답 대기 5초 × 8회 + 백오프 상한 합 91초)
+)
 ORDER_SELECTOR = "app.kubernetes.io/name=order"  # workloads/order/chart 라벨
 
 DB_DIR = "raw/db"
@@ -45,6 +57,7 @@ def collect(
     run_dir = Path(ctx.run_dir)
     fetched = fetch_mod.fetch(ctx, tr, run_dir)
     sleep(QUIET_S)
+    wait_settled(ctx, tr, sleep=sleep)
     snapshot_db(ctx, crit, tr, run_dir, sleep=sleep)
     observe_pods(ctx, crit, tr, run_dir)
     try:
@@ -54,6 +67,30 @@ def collect(
     write_resolved(crit, run_dir)
     write_evidence(run_dir)
     return run_dir
+
+
+def wait_settled(
+    ctx: RunContext, tr: Transports, *, sleep: Callable[[float], None] = time.sleep
+) -> None:
+    """이 run의 pending 주문이 0이 될 때까지 SETTLE_TIMEOUT_S 동안 기다린다(adapter 모드)."""
+    for _ in range(SETTLE_TIMEOUT_S // SETTLE_POLL_S):
+        if not _pending(ctx, tr):
+            return
+        sleep(SETTLE_POLL_S)
+
+
+def _pending(ctx: RunContext, tr: Transports) -> int | None:
+    """이 run의 pending 주문 수. psql이 실패하거나 출력을 못 읽으면 None(snapshot_db가 DB 문제를 남긴다)."""
+    sql = (
+        "SELECT 'pending=' || count(*) FROM orders WHERE status = 'pending'"
+        f" AND client_order_id ~ '{run_key_regex(ctx.run_id)}';\n"
+    )
+    try:
+        res = exec_bundle(tr, sql, target=ctx.db)
+    except TransportError:
+        return None
+    m = re.search(r"pending=(\d+)", res.stdout)
+    return int(m.group(1)) if m else None
 
 
 def snapshot_db(

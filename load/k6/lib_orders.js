@@ -28,7 +28,8 @@ const SETUP_PROBE = 10; // setup 첫 요청 10건이 모두 status 0이면 abort
 const SETUP_TRIES = 3; // setup 계좌 읽기: 404가 아닌 실패는 1s 뒤 다시(우리 설정값)
 const HEADERS = { 'Content-Type': 'application/json' };
 // 재요청 비교 필드(계약 명세 4 RESEND_DIFF의 의미 필드)
-const SAME_FIELDS = ['order_id', 'user_id', 'market', 'side', 'volume', 'status', 'fill_price', 'amount'];
+const KEY_FIELDS = ['order_id', 'user_id', 'market', 'side', 'volume'];
+const SAME_FIELDS = [...KEY_FIELDS, 'status', 'fill_price', 'amount'];
 
 export function pad(n, width) {
   let s = String(n);
@@ -67,11 +68,12 @@ function accountUrl(user) {
 }
 
 // GET /accounts 응답 → {krw, vol}. KRW-BTC 보유가 없으면 vol "0"
+// adapter 모드는 pending ask가 묶은 수량을 뺀 available_volume을 준다
 function accountOf(res) {
   const b = JSON.parse(res.body);
   let vol = '0';
   for (const p of b.positions || []) {
-    if (p.market === MARKET) vol = String(p.volume);
+    if (p.market === MARKET) vol = String(p.available_volume != null ? p.available_volume : p.volume);
   }
   parseVol(vol);
   return { krw: String(b.krw), vol };
@@ -115,7 +117,7 @@ export function readAccounts() {
 
 // ---------------------------------------------------------------- VU 상태
 
-let vuState = null; // {vu, user, held(BigInt), price, rnd, seq}
+let vuState = null; // {vu, user, held(BigInt), price, rnd, seq, unsettled}
 
 function vuInit(accounts) {
   const vu = exec.vu.idInTest;
@@ -132,10 +134,11 @@ function vuInit(accounts) {
     price: CFG.priceHint,
     rnd: mulberry32((CFG.seed ^ vu) | 0),
     seq: 0,
+    unsettled: false, // 체결 전에 ACK된 bid가 있다(adapter)
   };
 }
 
-// 보유를 다시 읽는다(422·결과 불명 뒤, 설계 4.3). 실패하면 그대로 둔다
+// 보유를 다시 읽는다(422·결과 불명 뒤, 체결 전 bid 뒤 보유가 0일 때, 설계 4.3). 실패하면 그대로 둔다
 function refresh(s) {
   const res = http.get(accountUrl(s.user), params('account_read'));
   if (res.status !== 200) return;
@@ -182,17 +185,21 @@ function firstAck(atts) {
   return null;
 }
 
-// 재요청 기대: 200 replayed=true와 같은 의미 필드(설계 4.4). ACK 뒤 확정 거절도 위반이다
+// 재요청 기대: ACK replayed=true와 같은 의미 필드(설계 4.4). ACK 뒤 확정 거절도 위반이다
 function resendDiffers(orig, resent) {
   const ack = firstAck(resent);
   if (ack === null) return kindOf(resent[resent.length - 1]) === 'reject';
   if (ack.rp !== true) return true;
-  return SAME_FIELDS.some((f) => String(ack._obj[f]) !== String(orig._obj[f]));
+  // 202(pending)는 그사이 worker가 상태를 바꿀 수 있어 주문 필드만 비교한다(judge _final과 같다)
+  const fields = orig.st !== 202 && ack.st !== 202 ? SAME_FIELDS : KEY_FIELDS;
+  return fields.some((f) => String(ack._obj[f]) !== String(orig._obj[f]));
 }
 
-// 200 응답의 fill_price·volume·side로 가격과 보유를 갱신한다(응답에 거래 후 보유가 없다)
+// ACK 응답의 fill_price·volume·side로 가격과 보유를 갱신한다(응답에 거래 후 보유가 없다)
+// 체결 전(adapter)이면 bid는 더하지 않고, ask는 서버가 수량을 묶어 두므로 뺀다
 function applyFill(s, ack) {
   const o = ack._obj;
+  if (o.status === 'rejected') return; // 정산 거절은 묶인 수량도 풀린다
   const price = Number(o.fill_price);
   if (price > 0) s.price = price;
   let v;
@@ -202,14 +209,20 @@ function applyFill(s, ack) {
     refresh(s);
     return;
   }
-  if (o.side === 'bid') s.held += v;
-  else if (o.side === 'ask') s.held = s.held > v ? s.held - v : 0n;
+  if (o.side === 'ask') s.held = s.held > v ? s.held - v : 0n;
+  else if (o.side === 'bid' && o.status === 'filled') s.held += v;
+  else if (o.side === 'bid') s.unsettled = true;
 }
 
 // 의도 하나: intent 줄 → 전송(재시도) → 재요청(일부) → result 줄(설계 4.4, 4.6)
 export function placeIntent(accounts) {
   if (vuState === null) vuState = vuInit(accounts);
   const s = vuState;
+  // worker가 나중에 체결한 bid는 응답으로 알 수 없어 팔 보유가 없을 때 계좌를 다시 읽는다
+  if (s.unsettled && s.held === 0n) {
+    s.unsettled = false;
+    refresh(s);
+  }
   s.seq += 1;
   const key = `k6-${CFG.runId}-${pad(s.vu, 4)}-${pad(s.seq, 6)}`;
   if (key.length > KEY_MAX) exec.test.abort(`client_order_id가 ${KEY_MAX}자를 넘는다`);

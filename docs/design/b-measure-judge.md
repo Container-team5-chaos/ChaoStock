@@ -154,7 +154,7 @@ K6_TARGET=local일 때만 ^(http|ws)://(127\.0\.0\.1|localhost):[0-9]+ 허용(�
 | 종목·side | `KRW-BTC` 하나. 보유가 있으면 0.4 확률로 `ask`, 아니면 `bid` |
 | volume | bid `floor8(BUY_KRW ÷ P)`(`BUY_KRW` 10,000원). ask는 0.7 확률로 보유 절반, 0.3 확률로 전량(절반이 0이면 전량) |
 | 가격 | 시장가다. 체결가는 Redis 현재가이고(`app/orders.py` `get_price`) 본문에 가격이 없다 |
-| 가격·보유 갱신 | 200 응답의 `fill_price`·`volume`·`side`로 갱신한다(응답에 거래 후 보유가 없다). 422이거나 결과 불명이면 `GET /accounts/{user_id}`로 다시 읽는다 |
+| 가격·보유 갱신 | ACK 응답의 `fill_price`·`volume`·`side`로 갱신한다(응답에 거래 후 보유가 없다). 체결 전 202는 bid를 더하지 않고 ask는 뺀다(서버가 묶는다). 정산 거절(422 replay)은 그대로 둔다. 422이거나 결과 불명이면, 또 체결 전 bid가 있는데 보유가 0이면 `GET /accounts/{user_id}`로 다시 읽는다(adapter는 `available_volume`) |
 | 수량 표현 | BigInt(1e-8 단위) → 10진 문자열. 본문 문자열은 한 번 만들어 모든 시도에 쓴다 |
 | client_order_id | `k6-<run_id>-<vu 4자리>-<seq 6자리>`(예 `k6-demo-1106-0001-000042`). 통일본 예시 `k6-0001-000042`에 run_id를 더해 run 사이 충돌을 막는다. run_id ≤ 40자라 최대 55자로 64자 제한 안에 든다. judge는 자릿수를 강제하지 않고(`[0-9]+`, 5.3) 64자 상한은 `safety`가 본다(5.6) |
 
@@ -166,16 +166,16 @@ K6_TARGET=local일 때만 ^(http|ws)://(127\.0\.0\.1|localhost):[0-9]+ 허용(�
 
 | 응답 | 시도 성격(5.3) | 동작 |
 |---|---|---|
-| 200, 본문에 `order_id` | ACK | 멈춘다 |
+| 200·202, 본문에 `order_id`. 422인데 `order_id`가 있고 `status`가 rejected(adapter 정산 거절 replay) | ACK | 멈춘다 |
 | 400, 404, 409, 422 | 확정 거절 | 멈춘다(400은 고쳐서 보낼 일이지만 k6는 재시도하지 않는다) |
 | 503 price_unavailable·stale_price | 확정 거절(그 시도는 저장 안 함) | 같은 본문·같은 키로 1s·2s·4s 뒤 최대 `RETRY_MAX`(3)회(통일본 재시도 규칙) |
 | 0(전송 오류·타임아웃), 502, 504, 503 not_ready·모르는 reason, 그 밖 5xx | 결과 불명 | 같은 본문·같은 키로 1s·2s·4s 뒤 최대 `RETRY_MAX`(3)회 |
-| 201, 200인데 `order_id` 없음, 그 밖 | PROTOCOL | 멈춘다 |
+| 201, 200·202인데 `order_id` 없음, 그 밖 | PROTOCOL | 멈춘다 |
 
 - 재시도 조건은 `st == 0 || st >= 500`이다(503은 reason과 무관하게 재시도). 두 경우는 재시도 수 `RETRY_MAX`를 함께 쓴다. 키의 K는 ACK가 있으면 K_ACK, 없으면 마지막 시도로 정한다(5.3). 503 stale_price 뒤 재시도가 체결되면 OK(`not_committed`)다.
 - 타임아웃 5s(우리 설정값, k6 기본값 60s). 서비스에 요청 deadline이 없어 k6가 포기한 뒤 커밋될 수 있다. 주문 조회 API도 없어 결과 불명은 judge가 DB 행으로 가른다(UNRESOLVED_COMMITTED / UNRESOLVED_ABSENT).
 - **같은 키 경합**: 서비스는 `find_order`를 잠금 밖에서 부른다(`app/orders.py`). 타임아웃 난 앞 시도가 아직 accounts 잠금을 쥐고 있으면 재전송은 행을 못 찾고 잠금을 기다린다. 앞 시도가 커밋한 뒤 재전송은 바뀐 잔고로 422를 받거나(전량 매도 등), 그 사이 시세가 낡아 503 stale_price를 받는다. 422에서 멈추면 그 키는 K_REJECT × D1이라 REJECT_COMMITTED(유실 기준)다. 분류 정책은 미정이다(5.3, 11절).
-- **재요청 검사**: ACK(`replayed: false`)를 받은 의도의 `RESEND_RATIO`(0.1, L604)는 같은 키·같은 본문으로 한 번 더 보낸다. 기대는 200 `replayed: true`와 같은 의미 필드다. 재시도 규칙도 같고, 시도는 같은 `atts`에 이어 붙인다. 위반(DOUBLE_CREATE, RESEND_DIFF)은 judge가 판정한다(5.3).
+- **재요청 검사**: ACK(`replayed: false`)를 받은 의도의 `RESEND_RATIO`(0.1, L604)는 같은 키·같은 본문으로 한 번 더 보낸다. 기대는 ACK `replayed: true`와 같은 의미 필드다(202가 끼면 order_id·user_id·market·side·volume만 비교). 재시도 규칙도 같고, 시도는 같은 `atts`에 이어 붙인다. 위반(DOUBLE_CREATE, RESEND_DIFF)은 judge가 판정한다(5.3).
 - 모든 요청에 `tags.name`을 단다(`order_create`, `order_resend`, `account_read`). 기본 `name`은 URL이라 user_id가 든 조회 URL이 시계열을 늘린다. `systemTags`에서 `url`도 뺀다.
 - 의도 하나의 최악 길이는 54s다(계산). 전송 하나는 첫 전송 + 재시도 3회가 모두 타임아웃일 때 5s × 4 + 백오프 7s = 27s이고, 재요청까지 두 번이다. 503 stale_price·price_unavailable 재시도가 늘어도 같은 `RETRY_MAX`를 쓰고 503은 타임아웃보다 빨리 오므로 최악 길이는 그대로다. `gracefulStop`은 60s다(우리 설정값).
 
@@ -218,14 +218,14 @@ export function placeIntent(u, o) {                       // lib_orders.js 핵�
 | `result` | 끝난 뒤 | `key, atts[{n, t0, t1, st, ec, ms, rp, raw}]` |
 
 - `key == body.client_order_id`, `acct == body.user_id`여야 한다. 아니면 PROTOCOL이고 safety 위반이다.
-- `atts`는 같은 키의 모든 전송(첫 전송, 재시도, 재요청)을 시간순으로 담는다. `st`는 전송 오류면 0, `ec`는 거절 `reason` 또는 k6 error_code, `rp`는 200 본문의 `replayed`(그 밖 null), `raw`는 200·409·4xx·503 본문(2048자 이하)이다.
+- `atts`는 같은 키의 모든 전송(첫 전송, 재시도, 재요청)을 시간순으로 담는다. `st`는 전송 오류면 0, `ec`는 거절 `reason` 또는 k6 error_code, `rp`는 200·202·422 주문 본문의 `replayed`(불리언이 아니면 null), `raw`는 200·202·4xx·503 본문(2048자 이하)이다.
 - 옛 `lookup`·`ack`·`resend` 하위 객체는 없다. 원문을 남겨 계약이 바뀌어도 다시 판정한다. 의도 1건 약 1KB(추정)다.
 - `run_end{run, t}`는 써도 되고 안 써도 된다(받기만 한다).
 
 **파서 규칙(`k6log.py`, k6 스크립트가 지킬 것)**
 - v1 흔적(최상위 `kind`, `type`이 `account`·`setup_done`, result의 `lookup`·`ack`·`resend`, `run_start.v ≠ 2`)은 형식 오류다. `run`은 `run_start`에만 필수다.
 - `run_start` 필수 키: `v, run, script_ver, seed, profile, plan, symbols, initial_cash, vus, t`. `conn_reuse`는 없어도 된다.
-- 시도는 8개 키(`n, t0, t1, st, ec, ms, rp, raw`)를 모두 쓴다(`rp`·`raw`는 null 가능). `n`은 1부터 차례로, `rp`는 200에서만 쓰고 원문 `replayed`와 같아야 하며, `raw`는 2048자 이하다. 어기면 줄은 살리고 기록 완전성(lines_parsed)을 깬다.
+- 시도는 8개 키(`n, t0, t1, st, ec, ms, rp, raw`)를 모두 쓴다(`rp`·`raw`는 null 가능). `n`은 1부터 차례로, `rp`는 200·202·422에서만 쓰고 원문 `replayed`와 같아야 하며, `raw`는 2048자 이하다. 어기면 줄은 살리고 기록 완전성(lines_parsed)을 깬다.
 - 503의 `ec`에는 서비스 `reason`을 그대로 쓴다. `reason`이 없는 503은 결과 불명이다(5.3).
 - intent 형식 위반(키가 `k6-<run_id>-<vu>-<seq>`가 아님, 64자 초과, 키의 vu ≠ `intent.vu`, body 필드가 비어 있지 않은 문자열이 아님)은 `intent_format`으로 표시만 한다. 판정은 분류(PROTOCOL)와 safety 가드가 한다.
 - 어느 줄이든 `token`·`authorization`으로 끝나는 키(대소문자 무시)가 있으면 safety 위반이다.
@@ -326,6 +326,7 @@ CMD_PREFIX = ("kubectl", "-n", "exchange")   # 테스트는 ("docker", "exec", "
 ### 5.2 collect 순서
 1. **fetch**(4.8).
 2. **정지 확인**: k6 종료 뒤 10s 기다린다(우리 설정값). 주문 트랜잭션은 요청 안에서 끝난다(`app/orders.py`). 서비스에 요청 deadline이 없으므로 늦은 커밋은 지문(F1 ≠ F2)으로 잡는다.
+   - **정산 대기**(adapter): 이 run의 pending 주문이 0이 될 때까지 5s 간격으로 최대 180s 기다린다(adapter 재시도 최악 약 131s = 응답 대기 5s × 8회 + 백오프 상한 합 91s). psql이 실패하거나 출력을 못 읽으면 바로 3으로 간다. adapter가 아니면 첫 조회가 0이라 기다리지 않는다.
 3. **DB**: psql을 한 번 exec한다(5.4). 지문 F1·F2가 다르면 30s 뒤 한 번 더, 그래도 다르면 INCONCLUSIVE(DB_NOT_QUIESCENT).
 4. **Pod 관측**: 주문 서비스 Pod 선택자로 `kubectl get pods -l <선택자> -o json`(L995)을 한 번 부른다. 라벨은 매니페스트가 없어 미정이다(10절).
    - `pod_replaced`: `creationTimestamp > inject_start`인 Ready Pod.

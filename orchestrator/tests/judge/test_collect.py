@@ -17,9 +17,9 @@ from orchestrator.judge import fetch as fetch_mod
 from orchestrator.judge import gather
 from orchestrator.judge.context import load_run
 from orchestrator.judge.criteria import RESOLVED_NAME, load_criteria
-from orchestrator.judge.db import parse_bundle_output, render_snapshot
+from orchestrator.judge.db import parse_bundle_output, render_snapshot, run_key_regex
 from orchestrator.judge.fetch import FetchResult, PodStatus
-from orchestrator.judge.model import Outcome, sha256_bytes
+from orchestrator.judge.model import DbTarget, Outcome, sha256_bytes
 from orchestrator.judge.pipeline import evaluate
 from orchestrator.judge.transport import TransportError, Transports
 
@@ -59,20 +59,32 @@ def _pod(name: str, created: int, *, ready=True, crash_at: int | None = None) ->
 
 
 class Cluster:
-    """가짜 runner. psql은 snapshots를 차례로 돌려주고, get pods는 pods를 돌려준다."""
+    """가짜 runner. psql은 pending 조회면 pending 수(다 쓰면 0, None은 psql 실패)를,
+    bundle이면 snapshots를 차례로 돌려준다. get pods는 pods를 돌려준다."""
 
-    def __init__(self, snapshots, pods=(), *, pods_rc=0, psql_error=False):
+    def __init__(self, snapshots, pods=(), *, pods_rc=0, psql_error=False, pending=()):
         self.snapshots = list(snapshots)
         self.pods = list(pods)
         self.pods_rc = pods_rc
         self.psql_error = psql_error
+        self.pending = list(pending)
+        self.pending_runs: list[tuple] = []  # (argv, SQL)
         self.calls: list[str] = []
 
     def __call__(self, argv, *, input=None, timeout):
         if "psql" in argv:
-            self.calls.append("psql")
+            settle = b"pending=" in input
+            self.calls.append("pending" if settle else "psql")
             if self.psql_error:
                 raise TransportError("kubectl: 실행 파일을 찾을 수 없다")
+            if settle:
+                self.pending_runs.append((argv, input.decode()))
+                n = self.pending.pop(0) if self.pending else 0
+                if n is None:
+                    return subprocess.CompletedProcess(argv, 1, b"", b"ERROR")
+                return subprocess.CompletedProcess(
+                    argv, 0, f"pending={n}\n".encode(), b""
+                )
             out = self.snapshots.pop(0).encode("utf-8")
             return subprocess.CompletedProcess(argv, 0, out, b"")
         assert argv[-6:] == ("get", "pods", "-l", gather.ORDER_SELECTOR, "-o", "json")
@@ -125,8 +137,8 @@ def test_collect_writes_evidence_and_judges_pass(run):
     assert _collect(run_dir, cluster, sleeps) == run_dir
 
     assert calls == ["fetch", f"release {K6_POD}"]  # RELEASE는 DB·Pod 관측 뒤
-    assert cluster.calls == ["psql", "pods"]
-    assert sleeps == [gather.QUIET_S]
+    assert cluster.calls == ["pending", "psql", "pods"]
+    assert sleeps == [gather.QUIET_S]  # pending이 처음부터 0이면 더 기다리지 않는다
     assert (run_dir / "raw/db/snapshot.txt").read_text(encoding="utf-8") == SNAPSHOT
     assert not (run_dir / "raw/db/psql-stderr.txt").exists()
     obs = json.loads((run_dir / "raw/k8s/obs.json").read_text(encoding="utf-8"))
@@ -165,7 +177,7 @@ def test_db_not_quiescent_retries_once(run):
     run_dir, _ = run
     cluster, sleeps = Cluster([_unquiet(SNAPSHOT), SNAPSHOT]), []
     _collect(run_dir, cluster, sleeps)
-    assert cluster.calls == ["psql", "psql", "pods"]
+    assert cluster.calls == ["pending", "psql", "psql", "pods"]
     assert sleeps == [gather.QUIET_S, gather.RETRY_S]
     assert (run_dir / "raw/db/snapshot.txt").read_text(encoding="utf-8") == SNAPSHOT
 
@@ -173,13 +185,43 @@ def test_db_not_quiescent_retries_once(run):
         [_unquiet(SNAPSHOT)] * 3
     )  # 두 번째도 다르면 더 찍지 않는다(db_quiescent 몫)
     _collect(run_dir, still, [])
-    assert still.calls == ["psql", "psql", "pods"]
+    assert still.calls == ["pending", "psql", "psql", "pods"]
+
+
+@pytest.mark.parametrize(
+    "pending, polls, waits",
+    [
+        ([3, 1, 0], 3, 2),
+        ([0], 1, 0),
+        ([None], 1, 0),  # psql 실패·출력을 못 읽으면 기다리지 않는다
+        ([7] * 40, 36, 36),  # 180초(5초 × 36)가 지나면 그대로 스냅샷
+    ],
+)
+def test_waits_for_pending_orders_before_snapshot(run, pending, polls, waits):
+    run_dir, _ = run
+    cluster, sleeps = Cluster([SNAPSHOT], pending=pending), []
+    _collect(run_dir, cluster, sleeps)
+    assert cluster.calls == ["pending"] * polls + ["psql", "pods"]
+    assert sleeps == [gather.QUIET_S] + [gather.SETTLE_POLL_S] * waits
+
+
+def test_pending_query_filters_this_run_on_run_db(run):
+    run_dir, _ = run
+    ctx = replace(load_run(run_dir / "run.json"), db=DbTarget(pod="pg-9"))
+    cluster = Cluster([], pending=[2])
+    assert gather._pending(ctx, Transports(runner=cluster)) == 2
+    [(argv, sql)] = cluster.pending_runs
+    assert "pg-9" in argv
+    assert "status = 'pending'" in sql
+    assert f"client_order_id ~ '{run_key_regex(ctx.run_id)}'" in sql
 
 
 def test_psql_failure_keeps_going_without_snapshot(run):
     run_dir, calls = run
     (run_dir / "raw/db/snapshot.txt").unlink()
-    _collect(run_dir, Cluster([], psql_error=True), [])
+    sleeps: list[float] = []
+    _collect(run_dir, Cluster([], psql_error=True), sleeps)
+    assert sleeps == [gather.QUIET_S]  # pending 조회도 실패하면 기다리지 않는다
     assert not (run_dir / "raw/db/snapshot.txt").exists()  # evaluate가 DB_ERROR로 본다
     assert "실행 파일" in (run_dir / "raw/db/psql-stderr.txt").read_text(
         encoding="utf-8"
