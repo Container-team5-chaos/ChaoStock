@@ -1,0 +1,6 @@
+apiVersion: v2
+name: mock-broker
+description: Internal mock exchange for Chaos-lab
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-broker
+  labels:
+    {{- include "mock-broker.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "mock-broker.labels" . | nindent 4 }}
+  ports:
+    - {name: http, port: 8000, targetPort: http}
