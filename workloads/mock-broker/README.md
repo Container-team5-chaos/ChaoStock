@@ -79,7 +79,7 @@ DB commit 전에 중단되면 결과가 남지 않으며 같은 키로 재시도
 초기화 명령은 새 `mock_broker_orders` 테이블만 생성하고 기존 기록을 보존한다.
 `reset-db.sh`는 이 테이블을 비우지 않으므로 실험마다 새로운 주문 키/run_id를 사용한다.
 
-## 로컬 kind 배포
+## 로컬 minikube 배포
 
 WSL/Bash, 저장소 루트에서 실행한다. DB·Redis 및 현재가가 준비돼 있어야 한다.
 
@@ -90,7 +90,7 @@ bash workloads/mock-broker/deploy-local.sh
 # 전체 외부 주문 흐름을 띄울 때: 기존 up.sh가 새 배포 스크립트를 호출한다
 ORDER_MODE=adapter PRICE_STUB=0 bash infra/local/up.sh --with-apps
 
-kubectl --context kind-chaos-lab -n exchange port-forward svc/mock-broker 8002:8000
+kubectl --context chaos-lab -n exchange port-forward svc/mock-broker 8002:8000
 curl http://localhost:8002/readyz
 ```
 
