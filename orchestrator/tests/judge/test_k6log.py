@@ -366,9 +366,10 @@ def test_dropped_line_does_not_add_soft_problems():
     "where, mutate, needle",
     [
         (R2, lambda r: r["atts"][1].update(n=3), "n이 1부터 차례가 아니다"),
-        (R3, lambda r: r["atts"][0].update(rp=False), "rp는 200 응답에만"),
+        (R3, lambda r: r["atts"][0].update(rp=False), "rp는 200·202·422 응답에만"),
         (R1, lambda r: r["atts"][0].update(rp=True), "raw.replayed와 다르다"),
         (R1, lambda r: r["atts"][0].update(rp=None), "raw.replayed와 다르다"),
+        (R1, lambda r: r["atts"][0].update(st=202, rp=True), "raw.replayed와 다르다"),
         (R3, lambda r: r["atts"][1].update(raw="x" * (RAW_MAX + 1)), "2048자"),
     ],
 )
@@ -380,6 +381,15 @@ def test_soft_attempt_problems_keep_record(where, mutate, needle):
     assert needle in log.problems[0]
     assert objs[where]["key"] in log.results
     assert complete(log).detail["failed"] == [COND_LINES]
+
+
+@pytest.mark.parametrize("st", [202, 422])
+def test_rp_on_202_and_422_is_not_soft_problem(st):
+    objs = ok_objs()
+    objs[R1]["atts"][0]["st"] = st
+    log = parse_k6log(dump(objs))
+    assert codes(log) == []
+    assert log.results[K1].atts[0].rp is False
 
 
 def test_soft_run_start_problems_keep_record():

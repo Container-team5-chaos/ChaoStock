@@ -35,6 +35,7 @@ from .factories import (
     ACCT_B,
     ACCT_EXTRA,
     FILLED_US,
+    UNFILLED,
     att,
     default_body,
     make_db,
@@ -81,6 +82,7 @@ CORE_METRICS = (
     "orphans",
     "unresolved",
     "interrupted",
+    "unsettled",
     "user_impact",
     "protocol",
     "response_unconfirmed",
@@ -130,13 +132,14 @@ def service_json(obj: Mapping[str, Any], order: Sequence[str] = ()) -> str:
 def ack(
     rp: bool | None = False,
     *,
+    st: int = 200,
     key: str = K1,
     acct: str = ACCT_A,
     body: Mapping[str, Any] | None = None,
     drop: Sequence[str] = (),
     **resp: Any,
 ) -> dict[str, Any]:
-    """200 시도 명세. 원문 = order_to_dict 바이트, rp = 본문 replayed.
+    """주문 본문 시도 명세(기본 200). 원문 = order_to_dict 바이트, rp = 본문 replayed.
 
     resp: response_body 인자(fill_price, amount, order_id 등). drop: 원문에서 뺄 필드.
     rp=None은 k6가 replayed를 기록하지 못한 것이다(원문 replayed는 False로 둔다. drop으로 뺀다).
@@ -144,7 +147,16 @@ def ack(
     b = response_body(key, acct, body=body, replayed=bool(rp), **resp)
     for f in drop:
         b.pop(f, None)
-    return att(200, rp=rp, raw=service_json(b, ORDER_TO_DICT_FIELDS))
+    return att(st, None, rp=rp, raw=service_json(b, ORDER_TO_DICT_FIELDS))
+
+
+def adapter_ack(
+    st: int = 202, rp: bool = False, status: str = "pending", key: str = K1
+) -> dict[str, Any]:
+    """adapter 모드 시도 명세(execution_mode·reason이 붙는다). filled가 아니면 체결 열이 null이다."""
+    resp = {} if status == "filled" else UNFILLED
+    extra = {"execution_mode": "adapter", "reason": None}
+    return ack(rp, st=st, key=key, status=status, **resp, **extra)
 
 
 def rej(st: int, reason: str, *, key: str = K1, ms: float = 8) -> dict[str, Any]:
@@ -320,6 +332,86 @@ def resend_diff():
 
 def same_body_409():
     return _one([TIMEOUT, rej(409, "idempotency_conflict")])
+
+
+# ---------------------------------------------------------------- adapter 모드(202 접수, 결과는 DB 행)
+
+
+def _adapter_row(status: str) -> DbSnapshot:
+    return _row(status=status, created_us=FILLED_US, **UNFILLED)
+
+
+def adapter_filled():
+    return _one([adapter_ack()])
+
+
+def adapter_rejected():
+    return _one([adapter_ack()], db=_adapter_row("rejected"))
+
+
+def adapter_pending():
+    return _one([adapter_ack()], db=_adapter_row("pending"))
+
+
+def adapter_unknown():
+    """run의 202가 첫 시도가 아니어도 adapter run이다."""
+    return _one([TIMEOUT, adapter_ack(rp=True)], db=_adapter_row("unknown"))
+
+
+def adapter_other_status():
+    return _one([adapter_ack()], db=_adapter_row("accepted"))
+
+
+def _accepted(order_id: int, rp: bool = False) -> dict[str, Any]:
+    return ack(rp, st=202, status="pending", order_id=order_id, **UNFILLED)
+
+
+def adapter_id_mismatch():
+    """202도 바뀌지 않는 열(order_id 등)은 DB와 비교한다."""
+    return _one([_accepted(999)], db=_adapter_row("pending"))
+
+
+def adapter_resend_id_diff():
+    return _one([adapter_ack(), _accepted(999, True)], db=_adapter_row("pending"))
+
+
+def adapter_filled_replay():
+    return _one([adapter_ack(), adapter_ack(200, True, "filled")])
+
+
+def adapter_rejected_replay():
+    atts = [adapter_ack(), adapter_ack(422, True, "rejected")]
+    return _one(atts, db=_adapter_row("rejected"))
+
+
+def adapter_filled_reply_rejected_row():
+    """202 뒤 최종 응답은 상태·체결 열까지 DB와 비교한다(체결로 알렸는데 DB는 거절)."""
+    atts = [adapter_ack(), adapter_ack(200, True, "filled")]
+    return _one(atts, db=_adapter_row("rejected"))
+
+
+def adapter_rejected_reply_filled_row():
+    return _one([adapter_ack(), adapter_ack(422, True, "rejected")])
+
+
+def adapter_reply_time_unread():
+    """202 뒤 최종 응답의 시각을 못 읽으면 PASS만 막는다."""
+    late = ack(True, st=200, status="filled", filled_at="not-a-time")
+    return _one([adapter_ack(), late])
+
+
+def adapter_volume_mismatch():
+    """202도 수량 같은 바뀌지 않는 열은 DB와 비교한다."""
+    resp = ack(st=202, status="pending", volume="0.00020000", **UNFILLED)
+    return _one([resp], db=_adapter_row("pending"))
+
+
+def rejected_reply_filled_row():
+    return _one([TIMEOUT, adapter_ack(422, True, "rejected")])
+
+
+def filled_then_rejected_reply():
+    return _one([adapter_ack(200, False, "filled"), adapter_ack(422, True, "rejected")])
 
 
 # ---------------------------------------------------------------- DB 전용
@@ -889,6 +981,133 @@ CASES: tuple[Golden, ...] = (
             "response_unparsed": ["filled_at"],
             "response_diff": None,
         },
+    ),
+    # adapter 모드: 202는 접수(ACK), 최종 결과는 DB. 정산 거절은 OK, 미정산은 UNSETTLED
+    Golden(
+        "adapter_accepted_filled",
+        adapter_filled,
+        S.OK,
+        K.K_ACK,
+        sub=OkSub.CLEAN,
+        detail={"statuses": [202], "response": "match"},
+    ),
+    Golden(
+        "adapter_accepted_rejected",
+        adapter_rejected,
+        S.OK,
+        K.K_ACK,
+        sub=OkSub.CLEAN,
+        detail={"db_status": ["rejected"], "response": "match", "fill": None},
+    ),
+    Golden(
+        "adapter_accepted_pending",
+        adapter_pending,
+        S.UNSETTLED,
+        K.K_ACK,
+        summary={"unsettled": 1},
+        detail={"fill": None, "unsettled": [f"{ID1}:status_pending"]},
+    ),
+    Golden(
+        "adapter_accepted_unknown",
+        adapter_unknown,
+        S.UNSETTLED,
+        K.K_ACK,
+        summary={"unsettled": 1},
+        detail={"statuses": [0, 202], "unsettled": [f"{ID1}:status_unknown"]},
+    ),
+    Golden(
+        "adapter_other_status",
+        adapter_other_status,
+        S.FILL_STATE,
+        K.K_ACK,
+        summary={"duplicates": 1},
+        detail={"fill": [f"{ID1}:status_accepted"], "unsettled": None},
+    ),
+    Golden(
+        "adapter_id_mismatch",
+        adapter_id_mismatch,
+        S.MISMATCH,
+        K.K_ACK,
+        also=(S.UNSETTLED,),
+        summary={"mismatch": 1, "unsettled": 1},
+        detail={"response_diff": {"order_id": ["999", str(ID1)]}},
+    ),
+    Golden(
+        "adapter_resend_id_diff",
+        adapter_resend_id_diff,
+        S.UNSETTLED,
+        K.K_ACK,
+        idem=(V.RESEND_DIFF,),
+        summary={"unsettled": 1, "duplicates": 1, "idem_resend_diff": 1},
+        detail={"resend_diff": {"2": {"order_id": [str(ID1), "999"]}}},
+    ),
+    Golden(
+        "adapter_filled_replay",
+        adapter_filled_replay,
+        S.OK,
+        K.K_ACK,
+        sub=OkSub.CLEAN,
+        detail={"statuses": [202, 200], "resend_diff": None},
+    ),
+    Golden(
+        "adapter_rejected_replay",
+        adapter_rejected_replay,
+        S.OK,
+        K.K_ACK,
+        sub=OkSub.CLEAN,
+        detail={"statuses": [202, 422], "resend_diff": None, "fill": None},
+    ),
+    Golden(
+        "adapter_filled_reply_rejected_row",
+        adapter_filled_reply_rejected_row,
+        S.MISMATCH,
+        K.K_ACK,
+        summary={"mismatch": 1},
+        detail={"response": "mismatch", "resend_diff": None},
+    ),
+    Golden(
+        "adapter_rejected_reply_filled_row",
+        adapter_rejected_reply_filled_row,
+        S.MISMATCH,
+        K.K_ACK,
+        summary={"mismatch": 1},
+        detail={"statuses": [202, 422], "response": "mismatch", "resend_diff": None},
+    ),
+    Golden(
+        "adapter_reply_time_unread",
+        adapter_reply_time_unread,
+        S.OK,
+        K.K_ACK,
+        sub=OkSub.CLEAN,
+        summary={"response_unparsed": 1, "inconclusive": {"mismatch": NE}},
+        marks={"response_unparsed": 1},
+        detail={"response": "unparsed", "response_unparsed": ["filled_at"]},
+    ),
+    Golden(
+        "adapter_volume_mismatch",
+        adapter_volume_mismatch,
+        S.MISMATCH,
+        K.K_ACK,
+        also=(S.UNSETTLED,),
+        summary={"mismatch": 1, "unsettled": 1},
+        detail={"response": "mismatch"},
+    ),
+    Golden(
+        "rejected_reply_filled_row",
+        rejected_reply_filled_row,
+        S.MISMATCH,
+        K.K_ACK,
+        summary={"mismatch": 1},
+        detail={"statuses": [0, 422], "response": "mismatch"},
+    ),
+    Golden(
+        "filled_then_rejected_reply",
+        filled_then_rejected_reply,
+        S.IDEMPOTENCY_VIOLATION,
+        K.K_ACK,
+        idem=(V.RESEND_DIFF,),
+        summary={"duplicates": 1, "idem_resend_diff": 1},
+        detail={"response": "match"},
     ),
     # 같은 키 재전송 경합(검증된 지적. 분류 정책 미정, 지금 규칙을 고정한다)
     Golden(

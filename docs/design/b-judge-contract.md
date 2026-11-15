@@ -51,10 +51,10 @@
 ## 3. 시도 성격과 클라이언트 상태 K
 
 시도 하나
-- **ACK**: st == 200이고 원문이 `order_id`가 있는 JSON 객체다.
+- **ACK**: 원문이 `order_id`가 있는 JSON 객체이고, st ∈ {200, 202}이거나 st == 422이고 `status`가 rejected다(adapter 모드의 접수 202, 정산 거절 replay 422). `order_id`가 없는 422(rejected_body)는 확정 거절이다.
 - **확정 거절(REJECT)**: st ∈ {400, 404, 409, 422}, 또는 503이고 reason ∈ {price_unavailable, stale_price}. **그 시도는** 저장되지 않는다. 같은 키의 처리 중인 앞 시도는 나중에 커밋될 수 있다(1절).
 - **결과 불명(UNKNOWN)**: st == 0, 502, 504, 503 not_ready 또는 알 수 없는 reason, 그 밖 5xx.
-- 그 밖(201, 200인데 주문 본문이 아님 등): PROTOCOL.
+- 그 밖(201, 200·202인데 주문 본문이 아님 등): PROTOCOL.
 
 키별 K
 - `K_ACK`: ACK가 하나라도 있다. 첫 ACK 본문이 원 응답이다.
@@ -82,6 +82,9 @@ D1 = 그 키의 orders 행이 있다. "일치" = 원 응답 필드가 DB 행과 
 - DB 전용: `DUP_ORDER`(같은 키 행 2개 이상), `FILL_STATE`(filled인데 체결 열 NULL, 또는 filled가 아닌 run 주문), `ORPHAN`(run 키 형식인데 JSONL에 없다).
 - 멱등 위반(IDEMPOTENCY_VIOLATION으로 센다): `DOUBLE_CREATE`(replayed=false ACK가 2번 이상, order_id가 다름), `FIRST_REPLAYED`(처음 보내는 키에 replayed=true), `RESEND_DIFF`(뒤 ACK의 의미 필드가 원 응답과 다름, 또는 ACK 뒤 확정 거절), `409_SAME_BODY`(k6는 늘 같은 본문을 보내므로 409는 서비스 결함).
 - 원문을 못 읽은 경우는 PASS만 막는 불확실성으로 센다(설계 5.7 규칙 4).
+- adapter run(202 시도가 하나라도 있는 run)은 202를 접수로 보고 최종 결과를 DB 행으로 판정한다. filled는 체결 열 NULL 검사, rejected는 정상(돈은 불변식이 본다), pending·unknown은 FILL_STATE가 아니라 `UNSETTLED`, 그 밖 상태는 FILL_STATE다. 202가 없는 run은 위 규칙 그대로다.
+- `UNSETTLED`: 결과를 아직 모르는 주문이라 FAIL이 아니라 INCONCLUSIVE다(기준 `unsettled`). 사용자 영향(결과 불명·중단)과 따로 세고, 주 클래스 순서는 FILL_STATE 바로 뒤다.
+- 202(pending)는 최종 결과가 아니다. 첫 ACK가 202면 그 응답 대 DB는 바뀌지 않는 열(id, client_order_id, user_id, market, side, volume)만 보고, 그 뒤 최종 응답(200, 422 replay)은 모든 매핑 열을 DB와 비교한다. RESEND_DIFF는 쌍 중 하나라도 202면 order_id, user_id, market, side, volume만 본다(k6 재요청 비교와 같다).
 
 ## 5. 응답 필드 매핑 (`integrity.response_fields`)
 
@@ -120,7 +123,7 @@ D1 = 그 키의 orders 행이 있다. "일치" = 원 응답 필드가 DB 행과 
 
 ## 9. 판정 기준 YAML (`experiments/criteria/`)
 
-- `default.yaml`: safety, integrity(initial_krw, stale_ms, response_fields), 클래스 묶음(lost = LOST + REJECT_COMMITTED, mismatch, duplicates, orphans, protocol), invariants(cash, qty, avg, nonneg, arith, constraints), `stale_fill`(fresh, 선택).
+- `default.yaml`: safety, integrity(initial_krw, stale_ms, response_fields), 클래스 묶음(lost = LOST + REJECT_COMMITTED, mismatch, duplicates, orphans, protocol, unsettled), invariants(cash, qty, avg, nonneg, arith, constraints), `stale_fill`(fresh, 선택).
 - `order-api-pod-kill.yaml`: SIGTERM 정상 종료. 기대 효과는 not_committed·after_503 관측.
 - `order-api-crash-after-commit.yaml`: 서비스에 커밋 뒤 죽이는 장애 훅이 없어 지금은 쓸 수 없다(앱 팀 확인 필요).
 - `demo-min.yaml`: 발표자 계좌는 run.json `extra_accounts`(user_id)다.

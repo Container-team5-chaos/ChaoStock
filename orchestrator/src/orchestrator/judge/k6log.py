@@ -32,10 +32,10 @@ from typing import Any
 from .context import EPOCH_MS_MAX, EPOCH_MS_MIN
 from .errors import InputError
 from .model import (
-    ACK_STATUS,
     CLIENT_ORDER_ID_MAX,
     INTENT_BODY_FIELDS,
     JSONL_VERSION,
+    REPLAY_STATUSES,
     REPLAYED_FIELD,
     Attempt,
     CheckResult,
@@ -878,7 +878,7 @@ def _ec(v: Any, name: str) -> str | None:
 def _attempt(v: Any, name: str, soft: Soft) -> Attempt:
     """atts[] 원소 {n, t0, t1, st, ec, ms, rp, raw}(계약 명세 2). 8개 키가 모두 있어야 한다.
 
-    rp·raw 일관성(200이 아닌데 rp가 있음, rp ≠ raw.replayed, raw 길이 초과)은 soft다.
+    rp·raw 일관성(200·202·422가 아닌데 rp가 있음, rp ≠ raw.replayed, raw 길이 초과)은 soft다.
     """
     o = _obj(v, name)
     p = name + "."
@@ -895,9 +895,9 @@ def _attempt(v: Any, name: str, soft: Soft) -> Attempt:
     )
     if a.raw is not None and len(a.raw) > RAW_MAX:
         soft.append((BAD_FIELD, f"{p}raw가 {RAW_MAX}자를 넘는다(길이 {len(a.raw)})"))
-    if a.st != ACK_STATUS:
+    if a.st not in REPLAY_STATUSES:
         if a.rp is not None:
-            soft.append((BAD_FIELD, f"{p}rp는 200 응답에만 쓴다(st {a.st})"))
+            soft.append((BAD_FIELD, f"{p}rp는 200·202·422 응답에만 쓴다(st {a.st})"))
     else:
         body = a.json()
         replayed = None if body is None else body.get(REPLAYED_FIELD)

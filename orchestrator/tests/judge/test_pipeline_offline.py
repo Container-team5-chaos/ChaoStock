@@ -53,8 +53,9 @@ from orchestrator.judge.pipeline import (
     judge,
 )
 from orchestrator.judge.report import summary_line
+from orchestrator.judge.verdict import effective_outcome
 
-from .factories import INITIAL_KRW, replay_krw, replay_positions
+from .factories import INITIAL_KRW, UNFILLED, replay_krw, replay_positions
 
 HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / "fixtures" / "run_ok"
@@ -226,6 +227,7 @@ def test_run_ok_passes():
         "invariants",
         "stale_fill",
         "protocol",
+        "unsettled",
     ):
         assert checks[cid].outcome is Outcome.PASS, cid
         assert checks[cid].value == 0, cid
@@ -505,6 +507,40 @@ def test_first_replayed_is_idempotency_violation(tmp_path):
     assert by_id(v.checks)["duplicates"].outcome is Outcome.FAIL
     assert v.integrity["classes"]["IDEMPOTENCY_VIOLATION"] == 1
     assert v.integrity["summary"]["idem_first_replayed"] == 1
+
+
+def test_unsettled_adapter_order_is_inconclusive_not_fail(tmp_path):
+    """202 접수 뒤 DB 행이 pending으로 남았다(adapter 모드) → UNSETTLED라 FAIL이 아니라 INCONCLUSIVE다."""
+    run = copy_run(tmp_path)
+
+    def accept(rows):
+        a = next(a for a in result_row(rows, LOST_KEY)["atts"] if a["st"] == 200)
+        body = json.loads(a["raw"])
+        body.update(status="pending", fill_price=None, amount=None, filled_at=None)
+        body.update(execution_mode="adapter", reason=None)
+        a.update(st=202, raw=service_json(body))
+        return rows
+
+    def pend(db):
+        orders = tuple(
+            replace(o, status="pending", **UNFILLED)
+            if o.client_order_id == LOST_KEY
+            else o
+            for o in db.orders
+        )
+        return rebalance(replace(db, orders=orders))
+
+    edit_log(run, accept)
+    edit_snapshot(run, pend)
+    v = run_eval(run)
+    checks = by_id(v.checks)
+    assert effective_outcome(checks["unsettled"]) is Outcome.INCONCLUSIVE
+    assert checks["unsettled"].value == 1
+    for cid in ("lost", "mismatch", "duplicates", "invariants"):
+        assert checks[cid].outcome is Outcome.PASS, cid
+    assert v.verdict is Outcome.INCONCLUSIVE
+    assert v.reasons == (R.CHECK_INCONCLUSIVE,)
+    assert v.integrity["classes"]["UNSETTLED"] == 1
 
 
 def test_response_mismatch_fails(tmp_path):

@@ -31,6 +31,7 @@ from .model import (
     LOSS_CLASSES,
     MISMATCH_CLASSES,
     ORPHAN_CLASSES,
+    UNSETTLED_CLASSES,
     USER_IMPACT_CLASSES,
     CheckResult,
     OkSub,
@@ -271,7 +272,7 @@ def _orders_section(v: Verdict) -> list[str]:
     log_complete = v.integrity.get("log_complete")
     rows = [
         ("의도(intent)", _n(total)),
-        ("ACK(200, order_id)", _n(ack)),
+        ("ACK(200·202·422 replay, order_id)", _n(ack)),
         (f"유실({_names(LOSS_CLASSES)})", _class_text(v, LOSS_CLASSES)),
         (f"내용 불일치({_names(MISMATCH_CLASSES)})", _class_text(v, MISMATCH_CLASSES)),
         (f"중복({_names(DUPLICATE_CLASSES)})", _class_text(v, DUPLICATE_CLASSES)),
@@ -280,6 +281,7 @@ def _orders_section(v: Verdict) -> list[str]:
             f"결과 불명·중단(사용자 영향: {_names(USER_IMPACT_CLASSES)})",
             _class_text(v, USER_IMPACT_CLASSES),
         ),
+        (f"미정산({_names(UNSETTLED_CLASSES)})", _class_text(v, UNSETTLED_CLASSES)),
         (
             "기록 완전성(log_complete)",
             _fmt(log_complete) if log_complete is not None else "?",
