@@ -15,6 +15,7 @@ from .cleanup import recover
 from .gates import (
     AlwaysOpen,
     CompositeGate,
+    adapter_ready,
     http_ready,
     no_leftover_chaos,
     observability_up,
@@ -55,6 +56,14 @@ def main(argv=None) -> int:
     p.add_argument(
         "--no-gate", action="store_true", help="시작 게이트 생략 (로컬 디버깅용)"
     )
+    p.add_argument(
+        "--exit-zero-on-result",
+        action="store_true",
+        help=(
+            "실험이 결과를 냈으면(FAILED·INCONCLUSIVE 포함) 종료 코드 0. "
+            "k8s Job용: 실험 결과가 FAIL이라고 Job이 재시도하지 않게 한다"
+        ),
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
     r.add_argument("scenario")
@@ -89,6 +98,7 @@ def main(argv=None) -> int:
                 "previous_cleanup": previous_cleanup_ok(store),
                 "no_leftover_chaos": no_leftover_chaos(injector),
                 "order_ready": http_ready(),
+                "adapter_ready": adapter_ready(),
                 "price_fresh": price_fresh(redis_price_getter()),
                 "prometheus": observability_up(watch),
             }
@@ -111,6 +121,17 @@ def main(argv=None) -> int:
         print(summary(store.load()), file=sys.stderr)
         raise
     print(summary(state))
+    return exit_code(state, args.exit_zero_on_result)
+
+
+def exit_code(state: dict, zero_on_result: bool = False) -> int:
+    """CLI 종료 코드. 실행기가 중간에 죽으면 여기 오지 않고 예외로 끝난다(0이 아님 → Job 재시도).
+
+    zero_on_result: 실행기가 끝까지 돌아 결과를 남겼으면 무조건 0.
+    실험 결과는 state.json·run.json에 있으니 Job 재시도로 알릴 필요가 없다.
+    """
+    if zero_on_result:
+        return 0
     return {"PASSED": 0, "FAILED": 10, "INCONCLUSIVE": 11}.get(state.get("result"), 1)
 
 

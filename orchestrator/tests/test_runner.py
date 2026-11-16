@@ -149,12 +149,30 @@ def test_recover_is_noop_after_done(tmp_path):
     assert recover(store, inj) is None
 
 
-def test_next_run_cleans_previous_interrupted(tmp_path):
+def test_new_run_does_not_touch_other_unfinished_run(tmp_path):
+    """다른 run이 끝나지 않은 채 남아 있으면 새 run은 건드리지 않고 시작하지 않는다.
+
+    살아 있는 run인지 끊긴 run인지 기록만으로는 알 수 없으므로, 남의 장애·k6를 지우지 않는다.
+    """
     store, inj, runner = make(tmp_path)
     store.save({"run_id": "r-old", "phase": "INJECTING", "history": []})
     inj.apply("r-old", 0, {})
-    runner.run(SCENARIO, run_id="r-new")
+    state = runner.run(SCENARIO, run_id="r-new")
+    assert state["phase"] == "GATE_FAILED"
+    assert state["reason"].startswith("another_run_active: r-old")
+    assert "r-old-s0" in inj.resources  # 남의 장애는 그대로
+    assert inj.create_calls == 1  # 새 주입 없음
+    assert store.load()["run_id"] == "r-old"  # 기록도 그대로
+
+
+def test_manual_recover_then_next_run_starts(tmp_path):
+    """끊긴 다른 run은 `orchestrator recover`로 정리한 뒤 새 run을 시작한다."""
+    store, inj, runner = make(tmp_path)
+    store.save({"run_id": "r-old", "phase": "INJECTING", "history": []})
+    inj.apply("r-old", 0, {})
+    recover(store, inj)
     assert "r-old-s0" not in inj.resources
+    assert runner.run(SCENARIO, run_id="r-new")["result"] == "PASSED"
 
 
 # ---- 시나리오 5-a: 관측 소실 ---------------------------------------------
@@ -524,3 +542,92 @@ def test_prom_query_parses_and_fails_closed(monkeypatch):
 
     monkeypatch.setattr(metrics.urllib.request, "urlopen", boom)
     assert metrics.PromQuery("http://p").value("q") is None
+
+
+# ---- 안건 7: 앞 run의 Job 재시도가 뒤 run에 개입하지 않는다 ----------------------
+def test_run_a_fail_then_b_retry_of_a_does_not_touch_b(tmp_path):
+    """A FAIL → 바로 B 시작 → A의 Job 재시도 Pod가 떠도 B는 끊기지 않는다."""
+    inj, load = MockInjector(), MockLoad()
+    store = StateStore(tmp_path / "state.json")
+    clock = Clock()
+
+    def make_runner(judge=None):
+        return Runner(
+            store,
+            inj,
+            load,
+            judge or MockJudge(),
+            sleep=clock.sleep,
+            now=clock.now,
+            runs_dir=tmp_path / "runs",
+        )
+
+    a = make_runner(MockJudge(FAIL)).run(SCENARIO, run_id="r-a")
+    assert a["result"] == "FAILED"
+
+    # B를 OBSERVING 중에 멈춰 세운 상태를 만든다 (B는 살아서 진행 중)
+    b_runner = make_runner()
+    seen = {}
+
+    def pause_in_observe(seconds):
+        if b_runner.state.get("phase") == "OBSERVING" and "b" not in seen:
+            seen["b"] = dict(b_runner.state)
+            # B가 관찰하는 동안 A의 재시도 Pod가 뜬다
+            retry = make_runner(MockJudge(FAIL)).run(SCENARIO, run_id="r-a")
+            seen["retry"] = retry
+        clock.sleep(seconds)
+
+    b_runner.sleep = pause_in_observe
+    b = b_runner.run(SCENARIO, run_id="r-b")
+
+    retry = seen["retry"]
+    assert retry["phase"] == "GATE_FAILED"
+    assert retry["reason"].startswith("another_run_active: r-b")
+    assert b["result"] == "PASSED"  # B는 끝까지 갔다
+    assert [h["phase"] for h in b["history"]][-1] == "DONE"
+    assert "aborted_from" not in b
+    assert inj.create_calls == 2  # A 1번, B 1번. 재시도는 주입하지 않았다
+
+
+def test_same_run_retry_after_result_returns_result(tmp_path):
+    """결과가 난 run의 Job 재시도 Pod는 아무것도 하지 않고 같은 결과를 돌려준다."""
+    store, inj, runner = make(tmp_path, judge=MockJudge(FAIL))
+    first = runner.run(SCENARIO, run_id="r-same")
+    again = runner.run(SCENARIO, run_id="r-same")
+    assert again["result"] == first["result"] == "FAILED"
+    assert inj.create_calls == 1
+
+
+def test_exit_code_for_job():
+    from orchestrator.main import exit_code
+
+    for result in ("PASSED", "FAILED", "INCONCLUSIVE", "ABORTED", "NOT_STARTED"):
+        assert exit_code({"result": result}, zero_on_result=True) == 0
+    assert exit_code({"result": "PASSED"}) == 0
+    assert exit_code({"result": "FAILED"}) == 10
+    assert exit_code({"result": "INCONCLUSIVE"}) == 11
+    assert exit_code({"result": "NOT_STARTED"}) == 1
+
+
+def test_job_manifest_uses_exit_zero_flag():
+    from pathlib import Path
+
+    job = (Path(__file__).parents[1] / "k8s" / "job.yaml").read_text()
+    assert "--exit-zero-on-result" in job
+
+
+# ---- 안건 6: adapter /readyz 게이트 ----------------------------------------
+def test_adapter_ready_only_in_adapter_mode():
+    from orchestrator.gates import adapter_ready
+
+    calls = []
+
+    def down(scenario):
+        calls.append(1)
+        return False, "HTTP 503"
+
+    check = adapter_ready(down)
+    assert check({"name": "pod-kill"}) == (True, "skip (기본 주문 모드)")
+    assert calls == []
+    assert check({"order_mode": "adapter"}) == (False, "HTTP 503")
+    assert check({"drain": {"timeout_s": 60}})[0] is False  # 시나리오 6은 adapter 모드

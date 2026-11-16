@@ -63,6 +63,14 @@ drain:
 
 - 빠진 시각은 run.json `marks.queue_drained`에 남는다.
 
+## run 간 간섭 막기 (Job 재시도)
+
+- k8s Job은 `--exit-zero-on-result`로 실행한다. 실험이 결과를 냈으면(FAILED·INCONCLUSIVE 포함) 종료 코드 0이라
+  Job이 재시도하지 않는다. 실행기 자체가 죽었을 때(예외·SIGTERM)만 0이 아니고, 그때 같은 `RUN_ID`로 대체 Pod가 뜬다.
+- 기동 시 자동 정리는 **자기 run_id의 기록만** 대상으로 한다. state.json에 다른 run이 끝나지 않은 채 남아 있으면
+  건드리지 않고 `GATE_FAILED (another_run_active)`로 시작하지 않는다. 그 run이 끊긴 거면 `orchestrator recover`로 정리한다.
+- CLI로 직접 실행하면 종료 코드는 그대로 PASSED 0 / FAILED 10 / INCONCLUSIVE 11.
+
 ## 시작 게이트
 
 하나라도 실패하면 시작하지 않고(`GATE_FAILED`) 이전 run 기록도 덮어쓰지 않는다. 확인 중 오류도 실패로 본다.
@@ -72,6 +80,7 @@ drain:
 | previous_cleanup | 직전 run이 `cleanup=INCOMPLETE`면 차단 (기동 시 정리를 한 번 더 시도한 뒤 확인) |
 | no_leftover_chaos | `chaos/run-id` 라벨이 붙은 Chaos 리소스가 남아 있으면 차단 |
 | order_ready | 주문 서비스 `/readyz` 200 |
+| adapter_ready | adapter 모드 시나리오(`order_mode: adapter` 또는 `drain` 블록)만: adapter `/readyz` 200 (DB 조회·정산 worker 실행 중) |
 | price_fresh | Redis `price:<market>`의 `ts`가 5초 이내 |
 | prometheus | Prometheus `/-/ready` 200 |
 
