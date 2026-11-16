@@ -12,6 +12,13 @@ durations:   # 초
   warmup: 30
   observe: 30
   recover: 60
+
+# 4번(adapter 부하): 0.8건/s는 후보값. broker-baseline.yaml 리허설로 확정한다
+load:
+  profile: steady
+  rate: 0.8         # 후보값
+  duration_s: 420   # warmup + observe + recover + drain.timeout_s
+  accounts: 300
 faults:
   - kind: NetworkChaos
     spec:
