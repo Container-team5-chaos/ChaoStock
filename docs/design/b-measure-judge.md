@@ -585,7 +585,23 @@ checks: [{id: order_p95_k6, required: false}, {id: order_err_k6, required: false
 
 **7.5 doctor(1차, 얇게)**: `kubectl auth can-i create pods/exec`·`get pods`·`get networkpolicy`, `allow-vpc-http`의 `from[].podSelector`와 Job 라벨 일치, psql `SELECT 1`과 제약 조회(`constraints`), seed 계좌 수, 같은 run_id 키 형식 주문 존재(있으면 거부). 시연 17:00 점검(L85–88)에서도 돌린다.
 
-**7.6 산출물**: 노트북 `runs/<run_id>/`(gitignore). 공유는 S3 `results/`(L422)에 손으로 올린다(쓰기 권한 미요청, L1001). 대표 `verdict.json`, `report.md`만 팀 합의 뒤 `docs/results/`에 커밋한다.
+**7.6 산출물(run_id별)**: 한 run의 파일은 모두 `runs/<run_id>/` 한 폴더에 모인다. 실행기 Job이면 PVC `chaos-orchestrator-state`의 `/var/lib/orchestrator/runs/<run_id>/`, 노트북이면 저장소의 `runs/<run_id>/`(gitignore)다.
+
+| 파일 | 쓰는 쪽 | 내용 |
+|---|---|---|
+| `run.json` | 실행기 | run_id, 시나리오·기준 파일 경로, 장애·대기열 시각(`marks`), 넣은 장애(`faults`) |
+| `marks.local.json` | `judge mark` | 손으로 남긴 시각·관측값(선택) |
+| `k6/orders.jsonl.gz` | collect(fetch) | k6 주문 기록(JSONL v2) |
+| `k6/summary.json`, `k6/sha256sum.txt`, `k6/pod-status.json`, `k6/derived.json` | collect(fetch) | k6 요약, k6 Pod 안 원본 해시, k6 Pod 상태, 시계 차이 |
+| `raw/db/snapshot.txt`, `raw/db/psql-stderr.txt` | collect | DB 스냅샷(psql 1회) |
+| `raw/k8s/pods.json`, `raw/k8s/obs.json` | collect | 주문 서비스 Pod 상태, `pod_replaced`·`crash_restart` |
+| `criteria.resolved.yaml` | collect | 병합한 판정 기준 |
+| `evidence.json` | collect | 위 증거 파일의 sha256 |
+| `verdict.json`, `report.md`, `classified.csv` | `judge run`·`evaluate` | 판정 결과, 사람용 요약, 주문별 분류 |
+
+- 실행기 phase 기록 `state.json`은 run별이 아니라 `/var/lib/orchestrator/state.json` 하나다.
+- 다시 판정: `python -m orchestrator.judge evaluate --run runs/<run_id>/run.json`. `criteria.resolved.yaml`을 먼저 쓰므로 run.json의 이미지 안 기준 경로(`/app/...`)가 노트북에 없어도 된다.
+- PVC에서 노트북으로 꺼내는 절차와 공유 위치는 실행기 위치 결정(회의 6번, A)을 따른다. 대표 run은 `verdict.json`, `report.md`와 Pod 이벤트만 `docs/results/`에 커밋한다.
 
 ## 8. 테스트
 - **기본 pytest(로컬)**: k6log(JSONL v2: 깨진 줄, `run_start` 2개, Counter와 줄 수 차이, `token` 키, key·acct ≠ body), classify 골든, criteria 병합 체인 스냅샷(옛 키 거부), invariants 스냅샷 픽스처(cash·qty·avg·arith 경계), combine(돈 FAIL 우선, N/A, INTERRUPTED), 결정성(2회·줄 섞기 → 같은 digest), CLI 종료 코드.
