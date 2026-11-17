@@ -13,3 +13,6 @@ faults:
         namespaces: [exchange]
         labelSelectors:
           app: order
+
+# 없으면 default.yaml로 판정해 Pod가 안 죽어도 PASS가 난다
+criteria: ../criteria/order-api-pod-kill.yaml
