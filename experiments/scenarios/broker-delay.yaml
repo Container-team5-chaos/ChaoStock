@@ -12,6 +12,14 @@ durations:   # 초
   warmup: 30
   observe: 60
   recover: 30
+
+# #4: Adapter 부하
+load:
+  profile: steady
+  rate: 0.8            # 건/s (초기값. k6 RATE, 0.1 이상 소수 가능)
+  duration_s: 420      # warmup + observe + recover + drain.timeout_s. 대기열이 빠지는 동안에도 부하 유지
+  accounts: 300
+
 faults:
   - kind: NetworkChaos
     spec:
