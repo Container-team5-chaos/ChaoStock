@@ -1,0 +1,753 @@
+{
+  "schema": "papertrade.verdict/v1",
+  "run_id": "r-1117095921",
+  "experiment": "pod-kill",
+  "verdict": "PASS",
+  "reasons": [],
+  "checks": [
+    {
+      "id": "lost",
+      "kind": "integrity",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "fail",
+      "value": 0,
+      "reasons": [],
+      "detail": {
+        "source": "class",
+        "names": [
+          "LOST",
+          "REJECT_COMMITTED"
+        ],
+        "counts": {
+          "LOST": 0,
+          "REJECT_COMMITTED": 0
+        },
+        "op": "==",
+        "threshold": 0
+      }
+    },
+    {
+      "id": "mismatch",
+      "kind": "integrity",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "fail",
+      "value": 0,
+      "reasons": [],
+      "detail": {
+        "source": "class",
+        "names": [
+          "BODY_MISMATCH",
+          "MISMATCH"
+        ],
+        "counts": {
+          "BODY_MISMATCH": 0,
+          "MISMATCH": 0
+        },
+        "op": "==",
+        "threshold": 0
+      }
+    },
+    {
+      "id": "duplicates",
+      "kind": "integrity",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "fail",
+      "value": 0,
+      "reasons": [],
+      "detail": {
+        "source": "class",
+        "names": [
+          "DUP_ORDER",
+          "FILL_STATE",
+          "IDEMPOTENCY_VIOLATION"
+        ],
+        "counts": {
+          "DUP_ORDER": 0,
+          "FILL_STATE": 0,
+          "IDEMPOTENCY_VIOLATION": 0
+        },
+        "op": "==",
+        "threshold": 0
+      }
+    },
+    {
+      "id": "orphans",
+      "kind": "integrity",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "fail",
+      "value": 0,
+      "reasons": [],
+      "detail": {
+        "source": "class",
+        "names": [
+          "ORPHAN"
+        ],
+        "counts": {
+          "ORPHAN": 0
+        },
+        "op": "==",
+        "threshold": 0
+      }
+    },
+    {
+      "id": "invariants",
+      "kind": "integrity",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "fail",
+      "value": 0,
+      "reasons": [],
+      "detail": {
+        "source": "sql",
+        "names": [
+          "arith",
+          "avg",
+          "cash",
+          "constraints",
+          "nonneg",
+          "qty"
+        ],
+        "counts": {
+          "arith": 0,
+          "avg": 0,
+          "cash": 0,
+          "constraints": 0,
+          "nonneg": 0,
+          "qty": 0
+        },
+        "op": "==",
+        "threshold": 0,
+        "parts": {
+          "arith": {
+            "violations": 0,
+            "source": "python",
+            "reasons": [],
+            "examples": [],
+            "detail": {
+              "orders": 13910,
+              "run_id": "r-1117095921"
+            }
+          },
+          "avg": {
+            "violations": 0,
+            "source": "python",
+            "reasons": [],
+            "examples": [],
+            "detail": {
+              "pairs": 300,
+              "oversold_orders": 0
+            }
+          },
+          "cash": {
+            "violations": 0,
+            "source": "python",
+            "reasons": [],
+            "examples": [],
+            "detail": {
+              "accounts": 1000,
+              "filled_orders": 13910,
+              "initial_krw": "10000000"
+            }
+          },
+          "constraints": {
+            "violations": 0,
+            "source": "python",
+            "reasons": [],
+            "examples": [],
+            "detail": {
+              "tables": [
+                "accounts",
+                "orders",
+                "positions",
+                "ticks"
+              ],
+              "expected_tables": [
+                "accounts",
+                "positions",
+                "orders"
+              ],
+              "drift": 0
+            }
+          },
+          "nonneg": {
+            "violations": 0,
+            "source": "python",
+            "reasons": [],
+            "examples": [],
+            "detail": {
+              "accounts": 1000,
+              "positions": 300
+            }
+          },
+          "qty": {
+            "violations": 0,
+            "source": "python",
+            "reasons": [],
+            "examples": [],
+            "detail": {
+              "pairs": 300,
+              "filled_orders": 13910
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "stale_fill",
+      "kind": "integrity",
+      "outcome": "PASS",
+      "required": false,
+      "on_violation": "fail",
+      "value": 0,
+      "reasons": [],
+      "detail": {
+        "source": "check",
+        "names": [
+          "fresh"
+        ],
+        "counts": {
+          "fresh": 0
+        },
+        "op": "==",
+        "threshold": 0,
+        "parts": {
+          "fresh": {
+            "violations": 0,
+            "source": "python",
+            "reasons": [],
+            "examples": [],
+            "detail": {
+              "orders": 13910,
+              "ticks": 1026,
+              "skipped": 0,
+              "unevaluated": 0,
+              "unevaluated_examples": [],
+              "stale_ms": 5000,
+              "slack_ms": 1000
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "protocol",
+      "kind": "unresolved",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "inconclusive",
+      "value": 0,
+      "reasons": [],
+      "detail": {
+        "source": "class",
+        "names": [
+          "PROTOCOL"
+        ],
+        "counts": {
+          "PROTOCOL": 0
+        },
+        "op": "==",
+        "threshold": 0
+      }
+    },
+    {
+      "id": "unsettled",
+      "kind": "unresolved",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "inconclusive",
+      "value": 0,
+      "reasons": [],
+      "detail": {
+        "source": "class",
+        "names": [
+          "UNSETTLED"
+        ],
+        "counts": {
+          "UNSETTLED": 0
+        },
+        "op": "==",
+        "threshold": 0
+      }
+    },
+    {
+      "id": "order_p95_k6",
+      "kind": "client",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "fail",
+      "value": {
+        "baseline": "14.032578",
+        "tail": "12.994848"
+      },
+      "reasons": [],
+      "detail": {
+        "stat": "ack_p95_ms",
+        "n": {
+          "baseline": 4440,
+          "tail": 3600
+        },
+        "min_samples": 400,
+        "windows": {
+          "baseline": [
+            1794877241846,
+            1794877389846
+          ],
+          "tail": [
+            1794877518262,
+            1794877638262
+          ]
+        },
+        "phase_outcomes": {
+          "baseline": "PASS",
+          "tail": "PASS"
+        }
+      }
+    },
+    {
+      "id": "order_err_k6",
+      "kind": "client",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "fail",
+      "value": {
+        "baseline": "0.000000",
+        "tail": "0.000000"
+      },
+      "reasons": [],
+      "detail": {
+        "stat": "sys_err_ratio",
+        "n": {
+          "baseline": 4440,
+          "tail": 3600
+        },
+        "min_samples": 400,
+        "windows": {
+          "baseline": [
+            1794877241846,
+            1794877389846
+          ],
+          "tail": [
+            1794877518262,
+            1794877638262
+          ]
+        },
+        "phase_outcomes": {
+          "baseline": "PASS",
+          "tail": "PASS"
+        }
+      }
+    },
+    {
+      "id": "k6_exit",
+      "kind": "k6",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "fail",
+      "value": 105,
+      "reasons": [],
+      "detail": {
+        "exit_code": 105,
+        "note": "judge stop(SIGINT)",
+        "failed_thresholds": []
+      }
+    },
+    {
+      "id": "judge_self_check",
+      "kind": "integrity",
+      "outcome": "PASS",
+      "required": false,
+      "on_violation": "inconclusive",
+      "value": 0,
+      "reasons": [],
+      "detail": {
+        "snapshot": {
+          "orders": 13910,
+          "keys": 13910,
+          "filled": 13910
+        },
+        "classifier": {
+          "orders": 13910,
+          "keys": 13910
+        },
+        "differs": []
+      }
+    }
+  ],
+  "guards": [
+    {
+      "id": "safety",
+      "kind": "guard",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "inconclusive",
+      "value": {
+        "bad_market": 0,
+        "bad_user": 0,
+        "bad_key": 0,
+        "inconsistent": 0,
+        "vu_multi_account": 0,
+        "account_multi_vu": 0,
+        "token_key": false
+      },
+      "reasons": [],
+      "detail": {
+        "markets": [
+          "KRW-BTC"
+        ],
+        "user_pattern": "^user-[0-9]{4}$",
+        "user_max": 1000,
+        "key_prefix": "k6-r-1117095921-",
+        "key_max": 64,
+        "examples": {}
+      }
+    },
+    {
+      "id": "account_set",
+      "kind": "guard",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "inconclusive",
+      "value": {
+        "jsonl": 300,
+        "missing": 0,
+        "extra": 0,
+        "extra_missing": 0
+      },
+      "reasons": [],
+      "detail": {
+        "require_extra_accounts": false,
+        "examples": {
+          "missing": [],
+          "extra_missing": []
+        }
+      }
+    },
+    {
+      "id": "fill_coverage",
+      "kind": "guard",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "inconclusive",
+      "value": {
+        "baseline": 4440,
+        "tail": 3600
+      },
+      "reasons": [],
+      "detail": {
+        "min_filled": {
+          "baseline": 100,
+          "tail": 100
+        },
+        "windows": {
+          "baseline": [
+            1794877241846,
+            1794877389846
+          ],
+          "tail": [
+            1794877518262,
+            1794877638262
+          ]
+        },
+        "low": []
+      }
+    },
+    {
+      "id": "sell_coverage",
+      "kind": "guard",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "inconclusive",
+      "value": 4812,
+      "reasons": [],
+      "detail": {
+        "min_sell_filled": 20,
+        "scope": "run",
+        "side": "ask"
+      }
+    },
+    {
+      "id": "load_coverage",
+      "kind": "guard",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "inconclusive",
+      "value": {
+        "baseline": "1.000000",
+        "tail": "1.000000"
+      },
+      "reasons": [],
+      "detail": {
+        "min_achieved_ratio": "0.98",
+        "low": [],
+        "unknown": []
+      }
+    },
+    {
+      "id": "fault_in_load",
+      "kind": "guard",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "inconclusive",
+      "value": 0,
+      "reasons": [],
+      "detail": {
+        "load_window": [
+          1794877170394,
+          1794877638262
+        ],
+        "clock_offset_ms": 153,
+        "outside": []
+      }
+    },
+    {
+      "id": "fault_effect",
+      "kind": "guard",
+      "outcome": "N/A",
+      "required": true,
+      "on_violation": "inconclusive",
+      "value": null,
+      "reasons": [],
+      "detail": {
+        "note": "fault_effect 항목이 없다"
+      }
+    },
+    {
+      "id": "db_quiescent",
+      "kind": "guard",
+      "outcome": "PASS",
+      "required": true,
+      "on_violation": "inconclusive",
+      "value": {
+        "f1": {
+          "orders": 13910,
+          "max_order_id": 13910,
+          "krw_sum": "9992147851.5093",
+          "positions": 300,
+          "volume_sum": "0.08914851"
+        },
+        "f2": {
+          "orders": 13910,
+          "max_order_id": 13910,
+          "krw_sum": "9992147851.5093",
+          "positions": 300,
+          "volume_sum": "0.08914851"
+        }
+      },
+      "reasons": [],
+      "detail": {}
+    },
+    {
+      "id": "log_complete",
+      "kind": "log",
+      "outcome": "PASS",
+      "required": false,
+      "on_violation": "inconclusive",
+      "value": true,
+      "reasons": [],
+      "detail": {
+        "failed": [],
+        "why": {},
+        "intent_lines": 13910,
+        "result_lines": 13910,
+        "order_intents": 13910,
+        "order_results": 13910,
+        "k6_exit_code": 105,
+        "stopped_by_judge": true,
+        "sha_ok": true,
+        "problems": {}
+      }
+    }
+  ],
+  "integrity": {
+    "classes": {
+      "BODY_MISMATCH": 0,
+      "DUP_ORDER": 0,
+      "FILL_STATE": 0,
+      "IDEMPOTENCY_VIOLATION": 0,
+      "INTERRUPTED": 0,
+      "LOST": 0,
+      "MISMATCH": 0,
+      "OK": 13910,
+      "ORPHAN": 0,
+      "PROTOCOL": 0,
+      "REJECT_COMMITTED": 0,
+      "RESPONSE_SCHEMA_UNCONFIRMED": 0,
+      "UNRESOLVED_ABSENT": 0,
+      "UNRESOLVED_COMMITTED": 0,
+      "UNSETTLED": 0
+    },
+    "examples": {
+      "OK": [
+        "k6-r-1117095921-0001-000001",
+        "k6-r-1117095921-0001-000002",
+        "k6-r-1117095921-0001-000003",
+        "k6-r-1117095921-0001-000004",
+        "k6-r-1117095921-0001-000005",
+        "k6-r-1117095921-0001-000006",
+        "k6-r-1117095921-0001-000007",
+        "k6-r-1117095921-0001-000008",
+        "k6-r-1117095921-0001-000009",
+        "k6-r-1117095921-0001-000010",
+        "k6-r-1117095921-0001-000011",
+        "k6-r-1117095921-0001-000012",
+        "k6-r-1117095921-0001-000013",
+        "k6-r-1117095921-0001-000014",
+        "k6-r-1117095921-0001-000015",
+        "k6-r-1117095921-0001-000016",
+        "k6-r-1117095921-0001-000017",
+        "k6-r-1117095921-0001-000018",
+        "k6-r-1117095921-0001-000019",
+        "k6-r-1117095921-0001-000020"
+      ]
+    },
+    "intents": {
+      "ack": 13910,
+      "results": 13910,
+      "total": 13910
+    },
+    "invariants": {
+      "arith": 0,
+      "avg": 0,
+      "cash": 0,
+      "constraints": 0,
+      "fresh": 0,
+      "nonneg": 0,
+      "qty": 0
+    },
+    "log_complete": true,
+    "subs": {
+      "after_503": 0,
+      "after_commit": 0,
+      "clean": 13798,
+      "not_committed": 112,
+      "rejected": 0
+    },
+    "summary": {
+      "body_missing": 0,
+      "duplicates": 0,
+      "idem_409_same_body": 0,
+      "idem_double_create": 0,
+      "idem_first_replayed": 0,
+      "idem_resend_diff": 0,
+      "inconclusive": {},
+      "intent_unresolved_ratio": "0.0",
+      "intents": 13910,
+      "interrupted": 0,
+      "lost": 0,
+      "lost_unknown": 0,
+      "mismatch": 0,
+      "ok": 13910,
+      "orphans": 0,
+      "protocol": 0,
+      "recovered_after_commit": 0,
+      "reject_committed": 0,
+      "rejected": 0,
+      "resend_uncompared": 0,
+      "response_unconfirmed": 0,
+      "response_unparsed": 0,
+      "unresolved": 0,
+      "unsettled": 0,
+      "user_impact": 0,
+      "warnings": []
+    }
+  },
+  "client": {
+    "phases": {
+      "baseline": {
+        "achieved_ratio": "1.000000",
+        "ack_p95_ms": "14.032578",
+        "filled": 4440,
+        "from_ms": 1794877241846,
+        "n": 4440,
+        "sell_filled": 1596,
+        "sys_err_ratio": "0.000000",
+        "to_ms": 1794877389846
+      },
+      "fault": {
+        "achieved_ratio": "0.999881",
+        "ack_p95_ms": "15.581358",
+        "filled": 3638,
+        "from_ms": 1794877391846,
+        "n": 3638,
+        "sell_filled": 1285,
+        "sys_err_ratio": "0.000000",
+        "to_ms": 1794877513127
+      },
+      "recovery": {
+        "achieved_ratio": "1.000253",
+        "ack_p95_ms": "12.988252",
+        "filled": 3755,
+        "from_ms": 1794877513127,
+        "n": 3755,
+        "sell_filled": 1304,
+        "sys_err_ratio": "0.000000",
+        "to_ms": 1794877638262
+      },
+      "tail": {
+        "achieved_ratio": "1.000000",
+        "ack_p95_ms": "12.994848",
+        "filled": 3600,
+        "from_ms": 1794877518262,
+        "n": 3600,
+        "sell_filled": 1236,
+        "sys_err_ratio": "0.000000",
+        "to_ms": 1794877638262
+      },
+      "warmup": {
+        "achieved_ratio": "0.929444",
+        "ack_p95_ms": "287.54611",
+        "filled": 1673,
+        "from_ms": 1794877170394,
+        "n": 1673,
+        "sell_filled": 482,
+        "sys_err_ratio": "0.057382",
+        "to_ms": 1794877230394
+      }
+    }
+  },
+  "load": {
+    "clock_offset_ms": 153,
+    "clock_skew": false,
+    "k6_exit_code": 105,
+    "k6_exit_reason": "Error",
+    "k6_stop_requested": true,
+    "plan_duration_ms": 600000,
+    "profile": "steady",
+    "sha256": "526a2d1931296e1c08a9789abc19cefe37463a7eb7c8223d2659f7ba7792029a",
+    "sha256_remote": "526a2d1931296e1c08a9789abc19cefe37463a7eb7c8223d2659f7ba7792029a",
+    "stopped_by_judge": true,
+    "summary_error": null,
+    "test_run_duration_ms": "467964.669181",
+    "vus": 300,
+    "window": {
+      "from_ms": 1794877170394,
+      "to_ms": 1794877638262
+    }
+  },
+  "inputs": {
+    "criteria_resolved_sha256": "dec71363b4dbf5f72a00dee30c4511e63929b0cd58cfe7cf08e722b37c4a8f25",
+    "criteria_sha256": "a4a5c614c4a648f272668433ed01d52f8a7d0db27ad845370dc6c96b90c6b848",
+    "evidence_manifest": {
+      "k6/derived.json": "7bc4a327bc3bb8448aea640326a02cc9394a1aa60e5b58c6ad9e833746ceb06f",
+      "k6/orders.jsonl.gz": "18adbb443829d80489707cb4e4c28488d7061d0a0200af6f4144aa2e484badb0",
+      "k6/pod-status.json": "631f40e25c573628a4a27f078bbc6e81fe278a4e88714299c2a213aa4458e0fa",
+      "k6/sha256sum.txt": "d151c8f8dec66f481779744c8a2846e69956338c918bc25ec438dfbeab836076",
+      "k6/summary.json": "58873b646d4b127a65171bf41578ebe9a47d5d330a645309064561bef3c1256e",
+      "raw/db/snapshot.txt": "b2e1f079348cf6c678abb252ac0516d8bb3ddbe5634f38a994fa9b07feeed826",
+      "raw/k8s/obs.json": "d5d63891c66194a933a3c0e3a17afc3a8674c060d673fa9f81e01a4112103f6d"
+    },
+    "evidence_manifest_sha256": "6d720f6e754e18c3b656ded90ea32114db9e6e80ea9530b55e824ca0285bd285",
+    "judge_version": "0.1.0",
+    "marks_local_sha256": null,
+    "response_fields_confirmed": true,
+    "run_json_sha256": "f65c98bb5ea4ec23bd3dc2074ce36e959be8b77db71495b835e88279e4c089f0"
+  },
+  "warnings": [],
+  "verdict_digest": "59ea8aaedc681378c5faaf87d81b5e7ddd6d05b19fb688d8fbe0bb2a39125f8e",
+  "run_info": {},
+  "generated_at": 1794877652404
+}

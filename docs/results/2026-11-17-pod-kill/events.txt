@@ -1,0 +1,89 @@
+2026-11-16T14:50:51Z   Killing                        order-7cb5bbbdd5-njxjz         Container order failed liveness probe, will be restarted
+2026-11-16T14:50:51Z   Started                        order-7cb5bbbdd5-qr5kj         Container started
+2026-11-16T14:50:56Z   Started                        order-7cb5bbbdd5-njxjz         Container started
+2026-11-16T14:51:01Z   Unhealthy                      order-7cb5bbbdd5-njxjz         Liveness probe failed: Get "http://10.244.1.5:8000/healthz": dial tcp 10.244.1.5:8000: connect: connection refused
+2026-11-16T14:51:01Z   Unhealthy                      order-7cb5bbbdd5-qr5kj         Readiness probe failed: Get "http://10.244.0.4:8000/readyz": dial tcp 10.244.0.4:8000: connect: connection refused
+2026-11-16T14:51:04Z   Unhealthy                      order-7cb5bbbdd5-qr5kj         Liveness probe failed: Get "http://10.244.0.4:8000/healthz": dial tcp 10.244.0.4:8000: connect: connection refused
+2026-11-16T14:51:08Z   Unhealthy                      order-7cb5bbbdd5-njxjz         Readiness probe failed: Get "http://10.244.1.5:8000/readyz": dial tcp 10.244.1.5:8000: connect: connection refused
+2026-11-16T14:52:19Z   Unhealthy                      order-7cb5bbbdd5-njxjz         Readiness probe failed: Get "http://10.244.1.5:8000/readyz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026-11-17T00:24:56Z   Unhealthy                      order-7cb5bbbdd5-qr5kj         Readiness probe failed: Get "http://10.244.0.3:8000/readyz": dial tcp 10.244.0.3:8000: connect: connection refused
+2026-11-17T00:24:57Z   Unhealthy                      order-7cb5bbbdd5-qr5kj         Liveness probe failed: Get "http://10.244.0.3:8000/healthz": dial tcp 10.244.0.3:8000: connect: connection refused
+2026-11-17T00:25:58Z   Killing                        order-7cb5bbbdd5-njxjz         Container order failed liveness probe, will be restarted
+2026-11-17T00:25:58Z   Unhealthy                      order-7cb5bbbdd5-njxjz         Liveness probe failed: Get "http://10.244.1.13:8000/healthz": dial tcp 10.244.1.13:8000: connect: connection refused
+2026-11-17T00:26:04Z   Unhealthy                      order-7cb5bbbdd5-njxjz         Readiness probe failed: Get "http://10.244.1.13:8000/readyz": dial tcp 10.244.1.13:8000: connect: connection refused
+2026-11-17T00:26:04Z   Started                        order-7cb5bbbdd5-njxjz         Container started
+2026-11-17T00:26:07Z   Killing                        order-7cb5bbbdd5-qr5kj         Container order failed liveness probe, will be restarted
+2026-11-17T00:27:45Z   Started                        order-7cb5bbbdd5-qr5kj         Container started
+2026-11-17T00:30:47Z   Unhealthy                      order-7cb5bbbdd5-qr5kj         Readiness probe failed: Get "http://10.244.0.3:8000/readyz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026-11-17T00:30:51Z   Unhealthy                      order-7cb5bbbdd5-njxjz         Readiness probe failed: Get "http://10.244.1.13:8000/readyz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026-11-17T00:31:08Z   SuccessfulCreate               order-7cb5bbbdd5               Created pod: order-7cb5bbbdd5-4s8xw
+2026-11-17T00:31:08Z   Scheduled                      order-7cb5bbbdd5-4s8xw         Successfully assigned exchange/order-7cb5bbbdd5-4s8xw to chaos-lab-m02
+2026-11-17T00:31:10Z   Started                        order-7cb5bbbdd5-4s8xw         Container started
+2026-11-17T00:31:53Z   SuccessfulCreate               order-7cb5bbbdd5               Created pod: order-7cb5bbbdd5-k55ww
+2026-11-17T00:31:53Z   Scheduled                      order-7cb5bbbdd5-k55ww         Successfully assigned exchange/order-7cb5bbbdd5-k55ww to chaos-lab
+2026-11-17T00:31:55Z   Started                        order-7cb5bbbdd5-k55ww         Container started
+2026-11-17T00:32:12Z   Scheduled                      order-7cb5bbbdd5-jrqdf         Successfully assigned exchange/order-7cb5bbbdd5-jrqdf to chaos-lab-m02
+2026-11-17T00:32:12Z   Killing                        order-7cb5bbbdd5-njxjz         Stopping container order
+2026-11-17T00:32:12Z   SuccessfulCreate               order-7cb5bbbdd5               Created pod: order-7cb5bbbdd5-jrqdf
+2026-11-17T00:32:15Z   Started                        order-7cb5bbbdd5-jrqdf         Container started
+2026-11-17T00:32:16Z   Unhealthy                      order-7cb5bbbdd5-jrqdf         Readiness probe failed: Get "http://10.244.1.16:8000/readyz": dial tcp 10.244.1.16:8000: connect: connection refused
+2026-11-17T00:37:54Z   Killing                        order-7cb5bbbdd5-4s8xw         Stopping container order
+2026-11-17T00:38:05Z   Unhealthy                      order-7cb5bbbdd5-4s8xw         Readiness probe failed: Get "http://10.244.1.14:8000/readyz": dial tcp 10.244.1.14:8000: connect: connection refused
+2026-11-17T00:38:13Z   SuccessfulCreate               order-6cc6ddb545               Created pod: order-6cc6ddb545-5qv6t
+2026-11-17T00:38:13Z   Scheduled                      order-6cc6ddb545-5qv6t         Successfully assigned exchange/order-6cc6ddb545-5qv6t to chaos-lab-m02
+2026-11-17T00:38:14Z   Started                        order-6cc6ddb545-5qv6t         Container started
+2026-11-17T00:38:15Z   Unhealthy                      order-6cc6ddb545-5qv6t         Readiness probe failed: Get "http://10.244.1.19:8000/readyz": dial tcp 10.244.1.19:8000: connect: connection refused
+2026-11-17T00:38:20Z   Scheduled                      order-6cc6ddb545-z4jlw         Successfully assigned exchange/order-6cc6ddb545-z4jlw to chaos-lab
+2026-11-17T00:38:20Z   Killing                        order-7cb5bbbdd5-k55ww         Stopping container order
+2026-11-17T00:38:20Z   SuccessfulCreate               order-6cc6ddb545               Created pod: order-6cc6ddb545-z4jlw
+2026-11-17T00:38:21Z   Started                        order-6cc6ddb545-z4jlw         Container started
+2026-11-17T00:38:21Z   Unhealthy                      order-6cc6ddb545-z4jlw         Readiness probe failed: Get "http://10.244.0.11:8000/readyz": dial tcp 10.244.0.11:8000: connect: connection refused
+2026-11-17T00:38:26Z   SuccessfulCreate               order-6cc6ddb545               Created pod: order-6cc6ddb545-rprfl
+2026-11-17T00:38:26Z   Killing                        order-7cb5bbbdd5-jrqdf         Stopping container order
+2026-11-17T00:38:27Z   Scheduled                      order-6cc6ddb545-rprfl         Successfully assigned exchange/order-6cc6ddb545-rprfl to chaos-lab-m02
+2026-11-17T00:38:27Z   Started                        order-6cc6ddb545-rprfl         Container started
+2026-11-17T00:38:28Z   Unhealthy                      order-6cc6ddb545-rprfl         Readiness probe failed: Get "http://10.244.1.21:8000/readyz": dial tcp 10.244.1.21:8000: connect: connection refused
+2026-11-17T00:38:30Z   Unhealthy                      order-7cb5bbbdd5-k55ww         Readiness probe failed: Get "http://10.244.0.10:8000/readyz": dial tcp 10.244.0.10:8000: connect: connection refused
+2026-11-17T00:38:33Z   Killing                        order-7cb5bbbdd5-qr5kj         Stopping container order
+2026-11-17T00:43:25Z   Killing                        order-6cc6ddb545-rprfl         Stopping container order
+2026-11-17T00:45:55Z   SuccessfulCreate               order-6677759c64               Created pod: order-6677759c64-6p6qn
+2026-11-17T00:45:55Z   Scheduled                      order-6677759c64-6p6qn         Successfully assigned exchange/order-6677759c64-6p6qn to chaos-lab-m02
+2026-11-17T00:45:56Z   Started                        order-6677759c64-6p6qn         Container started
+2026-11-17T00:45:57Z   Unhealthy                      order-6677759c64-6p6qn         Readiness probe failed: Get "http://10.244.1.23:8000/readyz": dial tcp 10.244.1.23:8000: connect: connection refused
+2026-11-17T00:46:02Z   Killing                        order-6cc6ddb545-5qv6t         Stopping container order
+2026-11-17T00:46:02Z   Scheduled                      order-6677759c64-lpkcs         Successfully assigned exchange/order-6677759c64-lpkcs to chaos-lab
+2026-11-17T00:46:02Z   SuccessfulCreate               order-6677759c64               Created pod: order-6677759c64-lpkcs
+2026-11-17T00:46:03Z   Unhealthy                      order-6677759c64-lpkcs         Readiness probe failed: Get "http://10.244.0.12:8000/readyz": dial tcp 10.244.0.12:8000: connect: connection refused
+2026-11-17T00:46:03Z   Started                        order-6677759c64-lpkcs         Container started
+2026-11-17T00:46:09Z   Scheduled                      order-5bf655f476-f4bbc         Successfully assigned exchange/order-5bf655f476-f4bbc to chaos-lab-m02
+2026-11-17T00:46:09Z   Killing                        order-6cc6ddb545-z4jlw         Stopping container order
+2026-11-17T00:46:09Z   SuccessfulCreate               order-5bf655f476               Created pod: order-5bf655f476-f4bbc
+2026-11-17T00:46:10Z   Started                        order-5bf655f476-f4bbc         Container started
+2026-11-17T00:46:11Z   Unhealthy                      order-5bf655f476-f4bbc         Readiness probe failed: Get "http://10.244.1.24:8000/readyz": dial tcp 10.244.1.24:8000: connect: connection refused
+2026-11-17T00:46:16Z   Scheduled                      order-5bf655f476-fmvxz         Successfully assigned exchange/order-5bf655f476-fmvxz to chaos-lab
+2026-11-17T00:46:16Z   SuccessfulCreate               order-5bf655f476               Created pod: order-5bf655f476-fmvxz
+2026-11-17T00:46:16Z   Killing                        order-6677759c64-6p6qn         Stopping container order
+2026-11-17T00:46:17Z   Unhealthy                      order-5bf655f476-fmvxz         Readiness probe failed: Get "http://10.244.0.13:8000/readyz": dial tcp 10.244.0.13:8000: connect: connection refused
+2026-11-17T00:46:17Z   Started                        order-5bf655f476-fmvxz         Container started
+2026-11-17T00:46:23Z   Killing                        order-6677759c64-lpkcs         Stopping container order
+2026-11-17T00:47:26Z   SuccessfulCreate               order-5bf655f476               Created pod: order-5bf655f476-69zkm
+2026-11-17T00:47:26Z   Scheduled                      order-5bf655f476-69zkm         Successfully assigned exchange/order-5bf655f476-69zkm to chaos-lab
+2026-11-17T00:47:27Z   Started                        order-5bf655f476-69zkm         Container started
+2026-11-17T00:47:27Z   Unhealthy                      order-5bf655f476-69zkm         Readiness probe failed: Get "http://10.244.0.14:8000/readyz": dial tcp 10.244.0.14:8000: connect: connection refused
+2026-11-17T00:47:36Z   Killing                        order-5bf655f476-f4bbc         Stopping container order
+2026-11-17T00:47:36Z   SuccessfulCreate               order-5bf655f476               Created pod: order-5bf655f476-mfqg9
+2026-11-17T00:47:36Z   Scheduled                      order-5bf655f476-mfqg9         Successfully assigned exchange/order-5bf655f476-mfqg9 to chaos-lab-m02
+2026-11-17T00:47:38Z   Started                        order-5bf655f476-mfqg9         Container started
+2026-11-17T00:47:39Z   Unhealthy                      order-5bf655f476-mfqg9         Readiness probe failed: Get "http://10.244.1.27:8000/readyz": dial tcp 10.244.1.27:8000: connect: connection refused
+2026-11-17T00:52:56Z   Killing                        order-5bf655f476-fmvxz         Stopping container order
+2026-11-17T00:59:33Z   Unhealthy                      order-5bf655f476-69zkm         Readiness probe failed: Get "http://10.244.0.14:8000/readyz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+2026-11-17T00:59:59Z   SuccessfulCreate               order-5bf655f476               Created pod: order-5bf655f476-55bv5
+2026-11-17T00:59:59Z   Scheduled                      order-5bf655f476-55bv5         Successfully assigned exchange/order-5bf655f476-55bv5 to chaos-lab
+2026-11-17T01:00:03Z   Started                        order-5bf655f476-55bv5         Container started
+2026-11-17T01:00:04Z   Unhealthy                      order-5bf655f476-55bv5         Readiness probe failed: Get "http://10.244.0.15:8000/readyz": dial tcp 10.244.0.15:8000: connect: connection refused
+2026-11-17T01:03:11Z   Killing                        order-5bf655f476-mfqg9         Stopping container order
+2026-11-17T01:03:12Z   Scheduled                      order-5bf655f476-w28wf         Successfully assigned exchange/order-5bf655f476-w28wf to chaos-lab-m02
+2026-11-17T01:03:12Z   Started                        order-5bf655f476-w28wf         Container started
+2026-11-17T01:03:12Z   SuccessfulCreate               order-5bf655f476               Created pod: order-5bf655f476-w28wf
+2026-11-17T01:03:13Z   Unhealthy                      order-5bf655f476-w28wf         Readiness probe failed: Get "http://10.244.1.34:8000/readyz": dial tcp 10.244.1.34:8000: connect: connection refused
+2026-11-17T01:08:30Z   Killing                        order-5bf655f476-55bv5         Stopping container order
