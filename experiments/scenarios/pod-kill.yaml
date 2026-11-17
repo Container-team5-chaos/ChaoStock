@@ -1,14 +1,23 @@
-# 시나리오 형식 초안 (팀 합의 전)
+# 시나리오 1,3 공통: 주문 서비스 Pod 하나를 정상 종료(SIGTERM)시키고
+  # 1. Pod가 실제로 교체되는지
+  # 2. 교체 후 주문 처리가 회복되는지를 본다. (w4 3번)
+# 주문 모드: 기본(즉시 체결). 기본 부하(30건/s)는 adapter 모드 정산 처리량보다 커서 adapter 모드에서는 돌리지 않는다
 name: pod-kill
+# 판정 기준(default.yaml) 구간에 맞춘 시간
+#   warmup 215 ≥ 판정 warmup 60 + baseline 150 + guard 2
+#   recover 185 ≥ 장애 후 여유 60 + tail 120
 durations:   # 초
-  warmup: 30
-  observe: 60
-  recover: 30
+  warmup: 215
+  observe: 60   # 교체 확인 기준(order-api-pod-kill.yaml의 pod_replaced within_s 120) 안에서 새 pod가 ready 되는 걸 보는 시간
+  recover: 185
 faults:
   - kind: PodChaos
     spec:
       action: pod-kill
       mode: one
+      # 종료 유예 시간(초). 0이면 강제 종료(SIGKILL)라 정상 종료 경로를 볼 수 없다.
+      # 주문 서비스 terminationGracePeriodSeconds(40) = preStop 10초 + 앱 정상 종료 최대 20초 + 여유
+      gracePeriod: 40
       selector:
         namespaces: [exchange]
         labelSelectors:
