@@ -293,6 +293,40 @@ def test_replay_position_orders_by_id_and_skips_unfilled():
     assert replay_position([b, pending, a]).avg_price == Decimal("150")
 
 
+def test_replay_position_follows_settle_seq():
+    """adapter 모드에서 매도(id 2)가 늦게 정산되면 정산 순서로 재생해야 DB 평단가(150)와 같다."""
+    buy1 = order(ACCT_A, 1, "bid", "1", "100")
+    sell = order(ACCT_A, 2, "ask", "1", "100")
+    buy2 = order(ACCT_A, 3, "bid", "1", "200")
+    assert replay_position([buy1, sell, buy2]).avg_price == Decimal("200")  # id 순
+    seq = [
+        dataclasses.replace(o, settle_seq=s)
+        for o, s in ((buy1, 1), (sell, 3), (buy2, 2))
+    ]
+    assert replay_position(seq).avg_price == Decimal("150")
+    # settle_seq가 없는 행(열 추가 전 주문)은 값 있는 행보다 먼저다
+    mixed = [
+        buy1,
+        dataclasses.replace(sell, settle_seq=2),
+        dataclasses.replace(buy2, settle_seq=1),
+    ]
+    assert replay_position(mixed).avg_price == Decimal("150")
+
+
+def test_avg_uses_settle_seq_against_positions():
+    buy1 = order(ACCT_A, 1, "bid", "1", "100")
+    sell = order(ACCT_A, 2, "ask", "1", "100")
+    buy2 = order(ACCT_A, 3, "bid", "1", "200")
+    pos = [make_position(ACCT_A, volume="1", avg_price="150")]
+    by_id = check_avg(make_db(orders=[buy1, sell, buy2], positions=pos))
+    assert by_id.violations == 1
+    seq = [
+        dataclasses.replace(o, settle_seq=s)
+        for o, s in ((buy1, 1), (sell, 3), (buy2, 2))
+    ]
+    assert check_avg(make_db(orders=seq, positions=pos)).violations == 0
+
+
 def test_replay_position_errors_and_oversell():
     sell = order(ACCT_A, 1, "ask", "1", "100")
     over = replay_position([sell])

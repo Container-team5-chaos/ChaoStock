@@ -36,6 +36,7 @@
 - seed는 `TRUNCATE` 뒤 `user-0001`..`user-1000`에 krw 10,000,000을 넣는다.
 - fills 테이블, 수수료, 읽기 전용 역할은 없다.
 - 같은 사용자의 주문은 accounts 잠금으로 직렬화되고 INSERT가 잠금 안에서 일어나므로 **사용자별로는 orders.id 순서 = 처리 순서**다.
+- adapter 모드는 접수(id)와 정산(`settle()`)이 따로라 id 순서 ≠ 처리 순서다. 정산할 때 매기는 `orders.settle_seq`(C·D가 추가)가 처리 순서다. judge는 이 열이 있는 DB에서만 읽는다.
 
 ## 2. k6 주문 기록 JSONL v2
 
@@ -106,7 +107,7 @@ D1 = 그 키의 orders 행이 있다. "일치" = 원 응답 필드가 DB 행과 
 |---|---|
 | `cash` | 모든 계좌: `krw + Σ bid amount − Σ ask amount = initial_krw` |
 | `qty` | 모든 (user, market): `positions.volume(없으면 0) = Σ bid volume − Σ ask volume` |
-| `avg` | 모든 (user, market): 주문을 id 순으로 서비스 공식대로 재생한 avg = positions.avg_price |
+| `avg` | 모든 (user, market): 주문을 처리 순서(`settle_seq`, 값이 없는 행은 먼저 id 순)로 서비스 공식대로 재생한 avg = positions.avg_price |
 | `nonneg` | krw, volume, avg_price ≥ 0 |
 | `arith` | `amount = ROUND_DOWN(fill_price × volume, 4)` |
 | `constraints` | 필요한 테이블·열, `client_order_id` UNIQUE, CHECK 제약이 있다. 다르면 SCHEMA_DRIFT(INCONCLUSIVE). status CHECK는 기본 4값과 adapter 모드의 5값(`unknown` 추가)을 모두 받는다 |

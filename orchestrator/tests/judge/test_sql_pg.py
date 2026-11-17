@@ -538,6 +538,16 @@ def test_missing_ticks_table_gives_empty_ticks_section(fresh_db):
     assert res["constraints"].violations == 0  # ticks는 constraints 대상이 아니다
 
 
+def test_settle_seq_column_is_read_only_when_present(fresh_db):
+    """열이 없는 DB(나머지 테스트)는 그대로 읽고, 열을 넣은 DB에서는 값도 읽는다."""
+    _psql(
+        "ALTER TABLE orders ADD COLUMN settle_seq BIGINT;\nUPDATE orders SET settle_seq = 1000 - id;"
+    )
+    run, snap = _snapshot()
+    assert run.returncode == 0
+    assert snap.orders and all(o.settle_seq == 1000 - o.id for o in snap.orders)
+
+
 def test_missing_column_stops_psql_but_keeps_schema_evidence(fresh_db):
     _psql("ALTER TABLE orders DROP COLUMN filled_at CASCADE;")
     run, snap = _snapshot()

@@ -397,8 +397,13 @@ class Replay:
     error: str | None = None
 
 
+def _settle_order(o: DbOrder) -> tuple[bool, int, int]:
+    # adapter 모드는 접수(id)와 정산이 따로라 매도가 끼면 순서에 따라 평단가가 다르다. 값 없는 행은 열 추가 전 주문이다
+    return (o.settle_seq is not None, o.settle_seq or 0, o.id)
+
+
 def replay_position(orders: Iterable[DbOrder]) -> Replay:
-    """filled 주문을 id 순으로 orders.place_order와 같은 식으로 재생한다(계약 명세 7 avg).
+    """filled 주문을 정산 순서(settle_seq, 값이 없는 행은 먼저 id 순)로 orders.place_order와 같은 식으로 재생한다(계약 명세 7 avg).
 
     bid: new_volume = held + v, new_avg = ((held·avg + v·price) / new_volume).quantize(1e-8).
     ask: new_volume = held − v, avg 그대로(0이 돼도 유지). 계산은 기본 context(28자리, HALF_EVEN)다.
@@ -409,7 +414,7 @@ def replay_position(orders: Iterable[DbOrder]) -> Replay:
     n = 0
     oversold: list[int] = []
     with localcontext(SERVICE_CONTEXT):
-        for o in sorted(_filled(orders), key=lambda x: x.id):
+        for o in sorted(_filled(orders), key=_settle_order):
             n += 1
             if o.volume is None or o.fill_price is None:
                 return Replay(
@@ -440,7 +445,7 @@ def replay_position(orders: Iterable[DbOrder]) -> Replay:
 def check_avg(db: DbSnapshot) -> InvariantResult:
     """모든 (user, market): 재생한 avg_price = positions.avg_price, 정확히 같음(계약 명세 7 avg).
 
-    사용자별로는 accounts FOR UPDATE로 직렬화되어 orders.id 순서 = 처리 순서다(계약 명세 1).
+    사용자별로는 accounts FOR UPDATE로 직렬화된다. 기본 모드는 id 순서, adapter 모드는 settle_seq 순서가 처리 순서다(계약 명세 1).
     problem: mismatch, avg_null, position_missing(주문은 있는데 positions 행이 없다), replay_error.
     """
     miss = _missing("avg", db, ("positions", "orders"))

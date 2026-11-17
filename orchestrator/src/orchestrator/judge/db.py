@@ -48,6 +48,7 @@ from .model import (
     FINGERPRINT_COLUMNS,
     ORDER_COLUMNS,
     POSITION_COLUMNS,
+    SETTLE_SEQ_COLUMN,
     TICK_COLUMNS,
     DbAccount,
     DbOrder,
@@ -134,6 +135,7 @@ _POSITIONS_SQL = _select(
     "positions", POSITION_COLUMNS, 'user_id COLLATE "C", market COLLATE "C"'
 )
 _ORDERS_SQL = _select("orders", ORDER_COLUMNS, "id")
+_ORDERS_SEQ_SQL = _select("orders", (*ORDER_COLUMNS, SETTLE_SEQ_COLUMN), "id")
 
 
 # ---------------------------------------------------------------- bundle 조립
@@ -231,6 +233,21 @@ def _section(name: str, select: str) -> list[str]:
     return [f"\\qecho '{MARK}{name}'", _copy(select), f"\\qecho '{END_MARK}{name}'"]
 
 
+def _orders_section() -> list[str]:
+    """orders. settle_seq 열이 있는 DB에서만 그 열도 읽는다(없는 DB에서 SELECT하면 psql이 멈춘다)."""
+    return [
+        "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('orders')"
+        f" AND attname = '{SETTLE_SEQ_COLUMN}' AND NOT attisdropped) AS has_settle_seq \\gset",
+        f"\\qecho '{MARK}orders'",
+        "\\if :has_settle_seq",
+        _copy(_ORDERS_SEQ_SQL),
+        "\\else",
+        _copy(_ORDERS_SQL),
+        "\\endif",
+        f"\\qecho '{END_MARK}orders'",
+    ]
+
+
 def _ticks_section() -> list[str]:
     """ticks(선택). ON_ERROR_STOP off 뒤에 둔다. 성공했을 때만 끝 표지를 낸다.
 
@@ -293,7 +310,7 @@ def build_bundle(
     lines += _section("schema", _embed(load_sql("snapshot_schema"), "snapshot_schema"))
     lines += _section("accounts", _ACCOUNTS_SQL)
     lines += _section("positions", _POSITIONS_SQL)
-    lines += _section("orders", _ORDERS_SQL)
+    lines += _orders_section()
     lines.append("COMMIT;")
     lines += _section("fingerprint2", _FINGERPRINT_SQL)
     lines.append("\\set ON_ERROR_STOP off")
@@ -581,6 +598,7 @@ def _orders(rows: list[dict], header: Sequence[str]) -> tuple[DbOrder, ...]:
                 amount=_dec(r["amount"], f"{w}.amount"),
                 created_us=_ts(r["created_at"], f"{w}.created_at"),
                 filled_us=_ts(r["filled_at"], f"{w}.filled_at"),
+                settle_seq=_int(r.get(SETTLE_SEQ_COLUMN), f"{w}.{SETTLE_SEQ_COLUMN}"),
             )
         )
     return tuple(sorted(out, key=lambda o: o.id))
@@ -741,6 +759,7 @@ def render_snapshot(db: DbSnapshot) -> str:
     """
     out: list[str] = []
     secs = db.sections
+    seq = any(o.settle_seq is not None for o in db.orders)
 
     def fp(name: str, v: Fingerprint | None) -> None:
         if name in secs and v is not None:
@@ -757,7 +776,7 @@ def render_snapshot(db: DbSnapshot) -> str:
             [(p.user_id, p.market, p.volume, p.avg_price) for p in db.positions],
         ),
         "orders": (
-            ORDER_COLUMNS,
+            (*ORDER_COLUMNS, SETTLE_SEQ_COLUMN) if seq else ORDER_COLUMNS,
             [
                 (
                     o.id,
@@ -771,6 +790,7 @@ def render_snapshot(db: DbSnapshot) -> str:
                     o.amount,
                     _pg_ts(o.created_us),
                     _pg_ts(o.filled_us),
+                    *((o.settle_seq,) if seq else ()),
                 )
                 for o in db.orders
             ],
