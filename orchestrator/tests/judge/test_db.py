@@ -99,7 +99,10 @@ def test_bundle_session_settings():
         for ln in lines
         if ln.startswith(") TO STDOUT")
     )
-    assert sum(1 for ln in lines if ln.startswith("COPY (")) == len(D.BUNDLE_SECTIONS)
+    # orders는 settle_seq 열이 있을 때와 없을 때 COPY가 하나씩이다
+    assert (
+        sum(1 for ln in lines if ln.startswith("COPY (")) == len(D.BUNDLE_SECTIONS) + 1
+    )
 
 
 def test_bundle_variables():
@@ -311,6 +314,17 @@ def _db():
 def test_roundtrip_render_then_parse_is_identity():
     db = _db()
     assert D.parse_bundle_output(D.render_snapshot(db)) == db
+
+
+def test_roundtrip_with_settle_seq_adds_the_column():
+    db = _db()
+    first = dataclasses.replace(db.orders[0], settle_seq=7)
+    db = dataclasses.replace(db, orders=(first, *db.orders[1:]))
+    text = D.render_snapshot(db)
+    assert ",filled_at,settle_seq\n" in text
+    back = D.parse_bundle_output(text)
+    assert back == db
+    assert [o.settle_seq for o in back.orders][:2] == [7, None]
 
 
 def test_roundtrip_keeps_inv_sections():

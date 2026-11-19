@@ -97,6 +97,7 @@ ORDER_COLUMNS = (
     "created_at",
     "filled_at",
 )
+SETTLE_SEQ_COLUMN = "settle_seq"  # 선택 열. adapter 모드는 정산 순서가 id 순서와 다르다
 TICK_COLUMNS = ("market", "price", "received_at")
 FINGERPRINT_COLUMNS = (
     "orders",
@@ -682,6 +683,7 @@ class DbOrder:
     amount: Decimal | None
     created_us: int | None
     filled_us: int | None
+    settle_seq: int | None = None  # 열이 없거나 정산 전이면 None
 
     def value(self, column: str) -> Any:
         """열 이름(ORDER_COLUMNS) → 비교용 값(order_value). 모르는 열이면 KeyError."""
