@@ -45,3 +45,6 @@ faults:
 drain:
   query: sum(adapter_queue_depth)
   timeout_s: 300
+
+# 없으면 default.yaml로 판정해 0.8건/s에서는 표본 부족으로 늘 INCONCLUSIVE다
+criteria: ../criteria/broker.yaml

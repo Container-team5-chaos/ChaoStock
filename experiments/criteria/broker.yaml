@@ -1,0 +1,8 @@
+# broker-delay, broker-partition(adapter 모드, 0.8건/s): 정산 정합성(유실·중복·잔고·미정산)만 판정한다
+extends: default.yaml
+# 0.8건/s면 구간 주문이 baseline 150초 120건, tail 120초 96건이다. 거절(4xx, 오류 아님)을 빼고 절반 이상 체결을 요구한다
+coverage: {min_filled: {baseline: 60, tail: 50, steady: 150}, min_sell_filled: 10, min_achieved_ratio: 0.95}
+checks:
+  # 구간 표본이 p95 하한(400건)에 못 미쳐 늘 LOW_SAMPLES다. 보고만 한다
+  - {id: order_p95_k6, required: false}
+  - {id: order_err_k6, required: false}
