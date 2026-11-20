@@ -81,7 +81,7 @@ class Settings:
             if not math.isfinite(value) or value <= 0:
                 raise ValueError("시간 제한, 배치 크기, 큐 크기는 양수여야 함")
         if settings.market != "KRW-BTC":
-            raise ValueError("이번 주 지원 마켓은 KRW-BTC임")
+            raise ValueError("지원 마켓은 KRW-BTC")
         return settings
 
 

@@ -3,6 +3,7 @@
 import json
 import time
 from decimal import ROUND_DOWN, Decimal
+from pathlib import Path
 
 import asyncpg
 
@@ -18,6 +19,16 @@ class Rejected(Exception):
     def __init__(self, http_status: int, reason: str):
         self.http_status = http_status
         self.reason = reason
+
+
+async def initialize_settlement(pool):
+    """기존 데이터와 번호를 보존하며 두 실행 모드의 정산 스키마를 준비함."""
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("SELECT pg_advisory_xact_lock(728401933)")
+            await conn.execute(
+                Path(__file__).with_name("settlement_schema.sql").read_text("utf-8")
+            )
 
 
 async def get_price(redis, market: str) -> Decimal:
@@ -121,8 +132,9 @@ async def place_order(pool, redis, req: OrderRequest):
                 )
                 row = await conn.fetchrow(
                     """INSERT INTO orders (client_order_id, user_id, market, side, volume,
-                                           status, fill_price, amount, filled_at)
-                       VALUES ($1, $2, $3, $4, $5, 'filled', $6, $7, now())
+                                           status, fill_price, amount, filled_at, settle_seq)
+                       VALUES ($1, $2, $3, $4, $5, 'filled', $6, $7, now(),
+                               nextval('order_settle_seq'))
                        RETURNING *""",
                     req.client_order_id,
                     req.user_id,

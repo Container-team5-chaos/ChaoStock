@@ -241,7 +241,9 @@ class ExternalWorker:
                             avg,
                         )
                         await conn.execute(
-                            """UPDATE orders SET status = 'filled', fill_price = $2, amount = $3, filled_at = $4
+                            # 계좌 잠금을 유지한 채 원장 변경과 같은 트랜잭션에서 번호를 발급함.
+                            """UPDATE orders SET status = 'filled', fill_price = $2, amount = $3,
+                                   filled_at = $4, settle_seq = nextval('order_settle_seq')
                                WHERE client_order_id = $1""",
                             row["client_order_id"],
                             price,

@@ -16,7 +16,7 @@ from prometheus_client import make_asgi_app
 from . import config, external
 from .adapter_client import AdapterClient
 from .metrics import DURATION, EXTERNAL_ACCEPTED, ORDERS, REPLAYED
-from .orders import Rejected, get_account, place_order
+from .orders import Rejected, get_account, initialize_settlement, place_order
 from .positions import get_positions
 from .schemas import OrderRequest, dec, order_to_dict
 
@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI):
     app.state.adapter_worker = None
     client = None
     try:
+        await initialize_settlement(app.state.pool)
         if config.ADAPTER_URL:
             if not all(
                 math.isfinite(v) and v > 0

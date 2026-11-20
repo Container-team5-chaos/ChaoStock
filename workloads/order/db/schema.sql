@@ -31,9 +31,11 @@ CREATE TABLE orders (
     amount           NUMERIC(24,4),  -- 체결 금액 = fill_price * volume
     created_at       TIMESTAMPTZ   NOT NULL DEFAULT now(),
     filled_at        TIMESTAMPTZ,
+    settle_seq       BIGINT,        -- 계좌 잠금 안에서 체결 정산할 때만 발급
     CHECK (status <> 'filled' OR (fill_price IS NOT NULL AND amount IS NOT NULL AND filled_at IS NOT NULL))
 );
 CREATE INDEX orders_user_created ON orders (user_id, created_at);
+CREATE SEQUENCE order_settle_seq OWNED BY orders.settle_seq;
 
 -- 수집기가 받은 시세 기록
 CREATE TABLE ticks (
