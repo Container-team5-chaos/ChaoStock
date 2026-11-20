@@ -146,7 +146,27 @@ class Runner:
     ) -> dict:
         run_id = check_run_id(run_id or f"r-{uuid.uuid4().hex[:8]}")
 
-        # 1) 이전 실험이 끊겼으면 주입 없이 정리만 하고 끝난 것으로 기록
+        # 0) 다른 run이 진행 중(또는 끊긴 채)이면 건드리지 않는다.
+        #    앞 run의 Job 재시도 Pod가 뒤 run의 장애·k6를 정리해 버리는 것을 막는다.
+        #    끊긴 다른 run은 그 run의 Job 재시도나 `orchestrator recover`가 정리한다.
+        other = self.store.load()
+        if (
+            other
+            and other.get("run_id") != run_id
+            and other.get("phase") not in TERMINAL
+        ):
+            return {
+                "run_id": run_id,
+                "phase": Phase.GATE_FAILED.value,
+                "result": "NOT_STARTED",
+                "reason": (
+                    f"another_run_active: {other.get('run_id')} "
+                    f"({other.get('phase')}). 끊긴 run이면 `orchestrator recover`로 정리"
+                ),
+            }
+
+        # 1) 이 run이 끊겼던 거면(Job 재시도) 주입 없이 정리만 하고 끝난 것으로 기록.
+        #    이미 끝난 다른 run의 정리 미완료(INCOMPLETE)는 재시도해도 안전하다.
         recovered = recover(self.store, self.injector, now=self.now, load=self.load)
         # Job이 같은 RUN_ID로 대체 Pod를 띄운 경우: 정리만 하고 새 실험은 시작하지 않는다
         last = recovered or self.store.load()

@@ -2,6 +2,7 @@
 
 - 이전 run의 정리가 끝났는가 (state.json cleanup != INCOMPLETE, 남은 Chaos 0)
 - 주문 서비스가 받을 준비가 됐는가 (/readyz 200)
+- adapter 모드면 adapter가 준비됐는가 (/readyz 200: DB 조회 가능, 정산 worker 실행 중)
 - 현재가가 신선한가 (Redis price:<market>의 ts가 STALE_MS 이내)
 - 관측이 살아 있는가 (Prometheus)
 """
@@ -14,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 ORDER_URL = "http://order.exchange.svc.cluster.local:8000"
+ADAPTER_URL = "http://adapter.exchange.svc.cluster.local:8000"
 REDIS_URL = "redis://redis.exchange.svc.cluster.local:6379/0"
 STALE_MS = 5000
 
@@ -82,6 +84,23 @@ def http_ready(url: str = ORDER_URL + "/readyz", timeout: float = 3.0) -> Check:
                 return r.status == 200, f"HTTP {r.status}"
         except Exception as e:  # noqa: BLE001
             return False, repr(e)
+
+    return _c
+
+
+def adapter_mode(scenario: dict) -> bool:
+    """시나리오가 adapter 주문 모드인가. order_mode: adapter 또는 drain 블록(시나리오 6)이 있으면 그렇다."""
+    return scenario.get("order_mode") == "adapter" or bool(scenario.get("drain"))
+
+
+def adapter_ready(check: Check | None = None) -> Check:
+    """adapter 모드 시나리오에서만 adapter /readyz를 본다. 기본 모드에는 adapter가 없다."""
+    inner = check or http_ready(ADAPTER_URL + "/readyz")
+
+    def _c(scenario):
+        if not adapter_mode(scenario):
+            return True, "skip (기본 주문 모드)"
+        return inner(scenario)
 
     return _c
 
