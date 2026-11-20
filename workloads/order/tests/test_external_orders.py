@@ -4,11 +4,13 @@ import asyncio
 import json
 import sys
 import socket
+import uuid
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -29,7 +31,7 @@ from adapter.worker import Worker
 from app import config, external
 from app.adapter_client import AdapterClient, validate_receipt
 from app.main import app
-from app.orders import Rejected, place_order
+from app.orders import Rejected, initialize_settlement, place_order
 from app.schemas import OrderRequest
 
 from .conftest import set_price
@@ -151,6 +153,7 @@ async def test_api_to_adapter_fill_reserves_and_settles_once(integration, db):
     h = integration
     first = await h.client.post("/orders", json=order())
     assert first.status_code == 202 and first.json()["status"] == "pending"
+    assert await db.fetchval("SELECT settle_seq FROM orders") is None
     duplicate = await h.client.post("/orders", json=order())
     assert duplicate.status_code == 202 and duplicate.json()["replayed"] is True
     account = (await h.client.get("/accounts/user-0001")).json()
@@ -164,8 +167,11 @@ async def test_api_to_adapter_fill_reserves_and_settles_once(integration, db):
     assert await db.fetchval(
         "SELECT krw FROM accounts WHERE user_id='user-0001'"
     ) == Decimal("9903000")
+    settle_seq = await db.fetchval("SELECT settle_seq FROM orders")
+    assert settle_seq is not None
     assert not await h.order_worker.settle(job, {"status": "filled"})
     assert (await h.client.post("/orders", json=order())).json()["replayed"] is True
+    assert await db.fetchval("SELECT settle_seq FROM orders") == settle_seq
     assert await db.fetchval("SELECT count(*) FROM orders") == 1
     assert h.broker_calls == ["GET", "POST"]
     assert (
@@ -225,6 +231,7 @@ async def test_rejection_releases_hold_and_is_replayed(integration, db):
     account = (await h.client.get("/accounts/user-0001")).json()
     assert Decimal(account["available_krw"]) == 10000000
     assert await db.fetchval("SELECT count(*) FROM positions") == 0
+    assert await db.fetchval("SELECT settle_seq FROM orders") is None
 
 
 async def test_sell_reservation_and_settlement(integration, db):
@@ -286,6 +293,7 @@ async def test_unknown_keeps_reservation(integration, db):
     await h.order_step()
     result = (await h.client.get("/orders/t-1")).json()
     assert result["status"] == "unknown" and result["reason"] == "broker_unknown"
+    assert await db.fetchval("SELECT settle_seq FROM orders") is None
     assert (
         await db.fetchval("SELECT krw FROM accounts WHERE user_id='user-0001'")
         == 10000000
@@ -333,6 +341,161 @@ async def test_external_schema_can_be_reapplied_without_losing_orders(integratio
     await h.client.post("/orders", json=order())
     await external.initialize(h.pool)
     assert await db.fetchval("SELECT count(*) FROM order_external") == 1
+
+
+async def test_out_of_order_settlement_and_local_fill_match_judge(
+    integration, db, monkeypatch
+):
+    h = integration
+    filled_at = datetime.now(timezone.utc)
+
+    def receipt(price):
+        return {
+            "status": "filled",
+            "price": Decimal(price),
+            "amount": Decimal(price),
+            "filled_at": filled_at,
+        }
+
+    await set_price("100")
+    assert (
+        await h.client.post("/orders", json=order(cid="buy-1", volume="1"))
+    ).status_code == 202
+    buy1 = await h.order_worker.claim()
+    assert await h.order_worker.settle(buy1, receipt("100"))
+
+    assert (
+        await h.client.post("/orders", json=order(cid="sell-1", side="ask", volume="1"))
+    ).status_code == 202
+    sell = await h.order_worker.claim()
+    await set_price("200")
+
+    assert (
+        await h.client.post("/orders", json=order(cid="buy-2", volume="1"))
+    ).status_code == 202
+    buy2 = await h.order_worker.claim()
+    assert await h.order_worker.settle(buy2, receipt("200"))
+    assert await h.order_worker.settle(sell, receipt("100"))
+
+    assert await db.fetchval("SELECT avg_price FROM positions") == Decimal("150")
+    assert await db.fetchval("SELECT volume FROM positions") == Decimal("1")
+    assert [
+        row["client_order_id"]
+        for row in await db.fetch("SELECT * FROM orders ORDER BY settle_seq")
+    ] == ["buy-1", "buy-2", "sell-1"]
+
+    # 같은 계좌의 로컬 체결도 공통 번호를 써야 NULL 행이 앞서 재생되지 않는다.
+    await set_price("300")
+    await place_order(
+        h.pool,
+        app.state.redis,
+        OrderRequest(**order(cid="local-buy", volume="1")),
+    )
+    rows = await db.fetch("SELECT * FROM orders ORDER BY id")
+    assert all(row["settle_seq"] is not None for row in rows)
+    assert rows[-1]["settle_seq"] > max(row["settle_seq"] for row in rows[:-1])
+
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[3] / "orchestrator" / "src")
+    )
+    from orchestrator.judge.invariants import check_avg
+    from orchestrator.judge.model import DbOrder, DbPosition, DbSnapshot
+
+    snapshot = DbSnapshot(
+        orders=tuple(
+            DbOrder(
+                **{
+                    key: row[key]
+                    for key in (
+                        "id",
+                        "client_order_id",
+                        "user_id",
+                        "market",
+                        "side",
+                        "volume",
+                        "status",
+                        "fill_price",
+                        "amount",
+                        "settle_seq",
+                    )
+                },
+                created_us=None,
+                filled_us=None,
+            )
+            for row in rows
+        ),
+        positions=tuple(
+            DbPosition(**dict(row))
+            for row in await db.fetch(
+                "SELECT user_id, market, volume, avg_price FROM positions"
+            )
+        ),
+        sections=frozenset({"orders", "positions"}),
+    )
+    assert snapshot.positions[0].avg_price == Decimal("225")
+    assert check_avg(snapshot).violations == 0
+
+
+async def test_settlement_rollback_keeps_pending_without_sequence(integration, db):
+    h = integration
+    await h.client.post("/orders", json=order())
+    job = await h.order_worker.claim()
+
+    @asynccontextmanager
+    async def acquire():
+        yield db
+
+    worker = external.ExternalWorker(SimpleNamespace(acquire=acquire), None)
+    receipt = {
+        "status": "filled",
+        "price": Decimal("97000000"),
+        "amount": Decimal("97000"),
+        "filled_at": datetime.now(timezone.utc),
+    }
+    with pytest.raises(RuntimeError, match="rollback settlement"):
+        async with db.transaction():
+            assert await worker.settle(job, receipt)
+            assert await db.fetchval("SELECT settle_seq FROM orders") is not None
+            raise RuntimeError("rollback settlement")
+
+    row = await db.fetchrow("SELECT status, settle_seq FROM orders")
+    assert row["status"] == "pending" and row["settle_seq"] is None
+    assert await db.fetchval("SELECT count(*) FROM positions") == 0
+    assert await db.fetchval(
+        "SELECT krw FROM accounts WHERE user_id='user-0001'"
+    ) == Decimal("10000000")
+    assert await db.fetchval("SELECT reserved_krw FROM order_external") == Decimal(
+        "98000"
+    )
+    assert await h.order_worker.settle(job, receipt)
+    assert await db.fetchval("SELECT settle_seq FROM orders") is not None
+
+
+async def test_settlement_schema_preserves_legacy_rows_and_sequence(db):
+    schema = "settlement_test_" + uuid.uuid4().hex
+    await db.execute(f'CREATE SCHEMA "{schema}"')
+    pool = None
+    try:
+        pool = await asyncpg.create_pool(
+            config.DATABASE_URL,
+            min_size=1,
+            max_size=1,
+            server_settings={"search_path": schema},
+        )
+        await pool.execute("CREATE TABLE orders (id BIGINT PRIMARY KEY, status TEXT)")
+        await pool.execute("INSERT INTO orders VALUES (1, 'filled')")
+        await initialize_settlement(pool)
+        row = await pool.fetchrow("SELECT * FROM orders")
+        assert row["id"] == 1 and row["status"] == "filled"
+        assert row["settle_seq"] is None
+        first = await pool.fetchval("SELECT nextval('order_settle_seq')")
+        await initialize_settlement(pool)
+        assert await pool.fetchval("SELECT nextval('order_settle_seq')") > first
+        assert await pool.fetchval("SELECT count(*) FROM orders") == 1
+    finally:
+        if pool is not None:
+            await pool.close()
+        await db.execute(f'DROP SCHEMA "{schema}" CASCADE')
 
 
 async def test_local_mode_replay_keeps_external_order_identity(

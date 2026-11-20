@@ -140,6 +140,13 @@ python -m app
 여러 Pod가 동시에 시작해도 PostgreSQL advisory lock으로 스키마 변경을 직렬화한다.
 DB 사용자는 해당 테이블 생성/변경 권한이 필요하다. Redis 가격은 수집기 또는 stub이 공급해야 한다.
 
+두 모드 모두 기동 시 기존 데이터를 보존하면서 `orders.settle_seq`와
+`order_settle_seq` sequence를 준비한다. pending 접수 시에는 NULL이고,
+계좌 잠금 안에서 잔고·보유량과 함께 체결을 반영할 때만 번호를 기록한다.
+로컬 체결도 같은 sequence를 사용하며, 재요청·중복 정산은 기존 번호를 유지한다.
+judge는 이 번호 순서로 평단가를 재계산한다. 번호는 중간에 빠질 수 있다.
+기존 filled 주문의 NULL은 그대로 보존하며, 과거 adapter 정산 순서는 복원하지 않는다.
+
 minikube의 기존 주문 서비스가 예전 이미지라면 예약을 인식하도록 먼저 새 코드를 로컬 모드로 전체 배포한다.
 그 뒤 budget 계약을 지원하는 adapter/mock-broker를 준비하고 외부 모드를 활성화한다.
 
