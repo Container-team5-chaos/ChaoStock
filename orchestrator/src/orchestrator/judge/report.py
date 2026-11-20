@@ -348,8 +348,16 @@ def _client_section(v: Verdict) -> list[str]:
     if not phases:
         return out + ["구간 측정값 없음."]
     out += [
-        _row("구간", "n", "ack p95(ms)", "첫 시도 오류율", "달성률"),
-        _row("---", "---:", "---:", "---:", "---:"),
+        _row(
+            "구간",
+            "n",
+            "ack p95(ms)",
+            "전체 첫 시도 오류율",
+            "stale_price 건수",
+            "stale_price 비율",
+            "달성률",
+        ),
+        _row("---", "---:", "---:", "---:", "---:", "---:", "---:"),
     ]
     for name, p in phases.items():
         out.append(
@@ -358,6 +366,8 @@ def _client_section(v: Verdict) -> list[str]:
                 _fmt(p.get("n")),
                 _fmt(p.get("ack_p95_ms")),
                 _fmt(p.get("sys_err_ratio")),
+                _fmt(p.get("stale_price_count")),
+                _fmt(p.get("stale_price_ratio")),
                 _fmt(p.get("achieved_ratio")),
             )
         )

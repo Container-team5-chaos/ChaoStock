@@ -79,6 +79,7 @@ from .client import (
     phases_from_marks,
     plan_duration_ms,
     run_window,
+    stale_price_stats,
 )
 from .context import load_run
 from .criteria import (
@@ -1211,6 +1212,7 @@ def _client(st: _State) -> dict[str, Any]:
     if log is None:
         return {"phases": phases}
     for p, (a, b) in st.windows.items():
+        stale_count, stale_ratio = stale_price_stats(log, (a, b))
         entry: dict[str, Any] = {
             "from_ms": a,
             "to_ms": b,
@@ -1218,6 +1220,8 @@ def _client(st: _State) -> dict[str, Any]:
             "achieved_ratio": _ratio(st, (a, b)),
             "ack_p95_ms": phase_stat(log, "ack_p95_ms", (a, b))[0],
             "sys_err_ratio": phase_stat(log, "sys_err_ratio", (a, b))[0],
+            "stale_price_count": stale_count,
+            "stale_price_ratio": stale_ratio,
         }
         if st.result is not None:
             entry["filled"] = count_filled(

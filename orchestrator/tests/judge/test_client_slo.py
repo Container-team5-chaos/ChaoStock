@@ -85,6 +85,31 @@ def test_evaluate_pass_fail_low_samples():
     assert evaluate_client_check(ERR, bad, {"tail": W}).outcome is Outcome.FAIL
 
 
+def test_pod_kill_error_rate_excludes_only_first_stale_price_attempts():
+    stale = [(503, "stale_price", 5), 200]
+    log = log_of(
+        [[200]] * 398
+        + [[(503, "not_ready", 5)], [(503, "price_unavailable", 5)]]
+        + [stale] * 10
+    )
+    pod_err = dict(ERR, stat="pod_kill_err_ratio")
+
+    overall = evaluate_client_check(ERR, log, {"tail": W})
+    assert overall.outcome is Outcome.FAIL
+    assert overall.value == {"tail": Decimal("0.029269")}
+    assert client_mod.stale_price_stats(log, W) == (10, Decimal("0.024391"))
+
+    pod = evaluate_client_check(pod_err, log, {"tail": W})
+    assert pod.outcome is Outcome.PASS
+    assert pod.value == {"tail": Decimal("0.005")}
+    assert pod.detail["n"] == {"tail": 400}
+
+    few = evaluate_client_check(pod_err, log_of([[200]] * 399 + [stale]), {"tail": W})
+    assert few.outcome is Outcome.INCONCLUSIVE
+    assert few.reasons == (R.LOW_SAMPLES,)
+    assert few.detail["n"] == {"tail": 399}
+
+
 def test_evaluate_phase_bucketing_fail_wins_over_low_samples():
     # 앞 400건은 빠르고 뒤 10건은 느리다. 뒤 구간은 표본 부족이지만 앞 구간 결과와 합친다
     log = log_of([[(200, None, 10)]] * 400 + [[(200, None, 999)]] * 10)
