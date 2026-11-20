@@ -8,6 +8,8 @@
 # target(adapter Pod IP)으로 범위를 좁혀 mock-broker의 다른 통신은 건드리지 않는다.
 # (adapter → Service(ClusterIP) 방향은 Pod IP로 걸러지지 않아, 응답 방향인 mock-broker 쪽에 건다)
 name: broker-delay
+# 주문 모드(w4 6번): adapter = 주문 서비스 → adapter → mock-broker. 실행기는 읽지 않고, infra/local/preflight.sh가 클러스터 설정과 맞는지 검사한다.
+order_mode: adapter
 durations:   # 초
   warmup: 30
   observe: 60
