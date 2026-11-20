@@ -10,17 +10,22 @@
 name: broker-delay
 # 주문 모드(w4 6번): adapter = 주문 서비스 → adapter → mock-broker. 실행기는 읽지 않고, infra/local/preflight.sh가 클러스터 설정과 맞는지 검사한다.
 order_mode: adapter
+# 판정 기준 구간에 맞춘 시간 (pod-kill과 같음, docs/results/2026-11-17-broker-load.md 다음 단계)
+#   warmup 215 ≥ 판정 warmup 60 + baseline 150 + guard 2  → baseline 약 120건 (broker.yaml min_filled 60)
+#   recover 185 ≥ 장애 후 여유 60 + tail 120
 durations:   # 초
-  warmup: 30
+  warmup: 215
   observe: 60
-  recover: 30
+  recover: 185
 
 # #4: Adapter 부하
 load:
   profile: steady
-  rate: 0.8            # 건/s (초기값. k6 RATE, 0.1 이상 소수 가능)
-  duration_s: 420      # warmup + observe + recover + drain.timeout_s. 대기열이 빠지는 동안에도 부하 유지
-  accounts: 300
+  rate: 0.8            # 건/s (리허설로 확정: 장애 없을 때 1.6건/s까지 적체 없음)
+  duration_s: 760      # warmup + observe + recover + drain.timeout_s. 대기열이 빠지는 동안에도 부하 유지
+  # 0.8건/s에 계좌 300개면 계좌당 주문이 1건 남짓이라 보유가 쌓이지 않아 매도가 체결되지 않는다(sell_coverage).
+  # 30개면 계좌당 약 20건 → 매수가 쌓이고 매도가 체결되며, 한 계좌에 pending이 겹쳐 정산 순서 역전(settle_seq)도 생긴다
+  accounts: 30
 
 faults:
   - kind: NetworkChaos
