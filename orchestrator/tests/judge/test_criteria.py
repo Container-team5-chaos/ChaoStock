@@ -131,6 +131,12 @@ def test_default_contents():
 
 def test_pod_kill_contents():
     c = load_criteria(CRITERIA_DIR / "order-api-pod-kill.yaml")
+    default = load_criteria(CRITERIA_DIR / "default.yaml")
+    assert default.item("order_err_k6")["stat"] == "sys_err_ratio"
+    assert dict(c.item("order_err_k6")) == {
+        **default.item("order_err_k6"),
+        "stat": "pod_kill_err_ratio",
+    }
     assert ids(c.checks)[-2:] == ["unresolved_zero", "order_recovery_k6"]
     assert ids(c.fault_effect) == ["pod_replaced", "shutdown_seen_by_k6"]
     assert c.item("pod_replaced")["on_violation"] == "inconclusive"

@@ -93,6 +93,7 @@ CLIENT_STATS = frozenset(
     {
         "ack_p95_ms",
         "sys_err_ratio",
+        "pod_kill_err_ratio",
         "achieved_ratio",
         "recovery",
         "filled",

@@ -59,6 +59,7 @@ __all__ = [
     "recovery_time",
     "run_window",
     "sys_err_ratio",
+    "stale_price_stats",
 ]
 
 T = TypeVar("T")
@@ -385,7 +386,7 @@ def phase_windows(
 P95_Q = Decimal("0.95")
 SAMPLE_Q = P95_Q  # sys_err_ratio 표본 기준에도 같은 q를 쓴다(우리 설정값, n ≥ 400)
 # 1차에 구간별로 재는 stat. 나머지(achieved_ratio·filled·sell_filled는 가드, recovery는 5.10)는 NOT_EVALUATED
-CLIENT_PHASE_STATS = frozenset({"ack_p95_ms", "sys_err_ratio"})
+CLIENT_PHASE_STATS = frozenset({"ack_p95_ms", "sys_err_ratio", "pod_kill_err_ratio"})
 
 
 def min_samples(q: Decimal | Fraction | str = P95_Q) -> int:
@@ -423,9 +424,9 @@ def ack_p95_ms(
     return nearest_rank(xs, q), len(xs)
 
 
-def _err_counts(log: K6Log, window: tuple[int, int]) -> tuple[int, int]:
-    """(0·5xx 수, 분모). 키마다 첫 시도(n이 가장 작은 것)를 t0로 구간에 넣는다. 4xx는 분모에서 뺀다."""
-    bad = total = 0
+def _err_counts(log: K6Log, window: tuple[int, int]) -> tuple[int, int, int]:
+    """첫 시도의 (0·5xx 수, 4xx 제외 표본 수, 503 stale_price 수)."""
+    bad = total = stale = 0
     for r in log.results.values():
         if not r.atts:
             continue
@@ -434,7 +435,23 @@ def _err_counts(log: K6Log, window: tuple[int, int]) -> tuple[int, int]:
             continue
         total += 1
         bad += a.st == 0 or a.st >= 500
-    return bad, total
+        stale += a.st == 503 and a.ec == "stale_price"
+    return bad, total, stale
+
+
+def _error_ratio(bad: int, total: int) -> Decimal | None:
+    if total == 0:
+        return None
+    scaled = math.ceil(Fraction(bad, total) * 10**RATIO_PLACES)
+    return Decimal(f"{scaled}E-{RATIO_PLACES}")
+
+
+def stale_price_stats(
+    log: K6Log, window: tuple[int, int]
+) -> tuple[int, Decimal | None]:
+    """전체 오류율과 같은 분모를 쓰는 첫 시도 503 stale_price 건수와 비율."""
+    _, total, stale = _err_counts(log, window)
+    return stale, _error_ratio(stale, total)
 
 
 def sys_err_ratio(log: K6Log, window: tuple[int, int]) -> Decimal | None:
@@ -442,11 +459,8 @@ def sys_err_ratio(log: K6Log, window: tuple[int, int]) -> Decimal | None:
 
     분모가 0이면 None. 결과는 소수 6자리 올림이다(`<` 기준에서 FAIL을 PASS로 바꾸지 않는다).
     """
-    bad, total = _err_counts(log, window)
-    if total == 0:
-        return None
-    scaled = math.ceil(Fraction(bad, total) * 10**RATIO_PLACES)
-    return Decimal(f"{scaled}E-{RATIO_PLACES}")
+    bad, total, _ = _err_counts(log, window)
+    return _error_ratio(bad, total)
 
 
 def phase_stat(
@@ -455,9 +469,12 @@ def phase_stat(
     """구간 하나의 (측정값, 표본 수, 사유). 표본이 모자라면 (None, n, (LOW_SAMPLES,))."""
     if stat == "ack_p95_ms":
         v, n = ack_p95_ms(log, window)
-    elif stat == "sys_err_ratio":
-        _, n = _err_counts(log, window)
-        v = sys_err_ratio(log, window) if n >= min_samples(SAMPLE_Q) else None
+    elif stat in {"sys_err_ratio", "pod_kill_err_ratio"}:
+        bad, n, stale = _err_counts(log, window)
+        if stat == "pod_kill_err_ratio":
+            bad -= stale
+            n -= stale
+        v = _error_ratio(bad, n) if n >= min_samples(SAMPLE_Q) else None
     else:
         raise ValueError(f"1차 stat이 아니다: {stat!r}")
     return v, n, (() if v is not None else (R.LOW_SAMPLES,))

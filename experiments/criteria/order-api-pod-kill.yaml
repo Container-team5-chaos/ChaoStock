@@ -7,5 +7,7 @@ fault_effect:
   # 보고만 한다. 엔드포인트가 먼저 빠지면 k6가 503을 못 볼 수 있다
   - {id: shutdown_seen_by_k6, class_sub: [not_committed, after_503], account: any, op: '>=', value: 1, required: false}
 checks:
+  # 시세 갱신 공백에 따른 거절을 Pod-kill 오류율의 분자와 분모에서 제외함.
+  - {id: order_err_k6, stat: pod_kill_err_ratio}
   - {id: unresolved_zero, kind: unresolved, class: [UNRESOLVED_COMMITTED, UNRESOLVED_ABSENT], phases: [fault, recovery], op: '==', value: 0}
   - {id: order_recovery_k6, kind: client, stat: recovery, required: false}   # 2차에 required
