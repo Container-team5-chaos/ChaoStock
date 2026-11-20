@@ -502,6 +502,7 @@ _COLUMNS = {
         ("amount", "numeric(24,4)"),
         ("created_at", "timestamp with time zone not null"),
         ("filled_at", "timestamp with time zone"),
+        ("settle_seq", "bigint"),
     ),
     "ticks": (
         ("id", "bigint not null"),
