@@ -100,9 +100,18 @@ else
   wa "끝난 k6·실행기 Job ${done_jobs}개 (판정 파일은 PVC에 있으니 지워도 됨)"
   hint "kubectl --context $CTX -n $NS get jobs -o name | grep -E 'job.batch/(k6-|chaos-run-)' | xargs -r kubectl --context $CTX -n $NS delete"
 fi
-backoff="$(tr -d '\r' <"$ROOT/orchestrator/k8s/job.yaml" | sed -nE 's/^[[:space:]]*backoffLimit:[[:space:]]*([0-9]+).*/\1/p')"
-[ "${backoff:-0}" = "0" ] && ok "실행기 Job backoffLimit 0" \
-  || { wa "orchestrator/k8s/job.yaml backoffLimit=$backoff — 실패한 run이 다시 시작돼 다음 run과 겹칠 수 있음 (w4 5번)"; hint "적용할 때 sed -e 's/backoffLimit: $backoff/backoffLimit: 0/'"; }
+# 실행기 Job 재시도(w4 5번): #50 이후에는 실험이 결과를 내면 종료 코드 0(--exit-zero-on-result)이라 재시도하지 않는다.
+# 그 옵션이 없고 backoffLimit > 0이면, 결과가 FAIL·INCONCLUSIVE인 run을 Job이 다시 시작해 다음 run과 겹칠 수 있다.
+job_yaml="$(tr -d '\r' <"$ROOT/orchestrator/k8s/job.yaml")"
+backoff="$(printf '%s\n' "$job_yaml" | sed -nE 's/^[[:space:]]*backoffLimit:[[:space:]]*([0-9]+).*/\1/p')"
+if printf '%s\n' "$job_yaml" | grep -q -- '--exit-zero-on-result'; then
+  ok "실행기 Job: 결과가 나온 run은 재시도하지 않음 (--exit-zero-on-result, backoffLimit ${backoff:-?}는 실행기가 죽었을 때만)"
+elif [ "${backoff:-0}" = "0" ]; then
+  ok "실행기 Job backoffLimit 0"
+else
+  wa "orchestrator/k8s/job.yaml backoffLimit=$backoff, --exit-zero-on-result 없음 — 실패한 run이 다시 시작돼 다음 run과 겹칠 수 있음 (w4 5번, #50)"
+  hint "#50 머지 전에는 적용할 때 sed -e 's/backoffLimit: $backoff/backoffLimit: 0/'"
+fi
 
 # 3. 주문 모드 ----------------------------------------------------------------
 step "3. 주문 모드 (시나리오 order_mode ↔ 클러스터)"
