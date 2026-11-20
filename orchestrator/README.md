@@ -126,16 +126,18 @@ python -m orchestrator.main run ../experiments/scenarios/pod-kill.yaml
 python -m orchestrator.main recover                  # 정리만
 ```
 
-## 클러스터에서 실행 (E 로컬 환경 기준)
+## 클러스터에서 실행 (minikube)
+
+run 하나의 전체 순서(결과 꺼내기 → DB 초기화 → 점검 → 실행)는 [`docs/operations.md`](../docs/operations.md)를 따른다.
 
 ```bash
-# 레포 루트에서
+# 레포 루트에서. 코드·시나리오를 바꿨으면 이미지부터 다시 넣는다
 docker build -f orchestrator/Dockerfile -t chaos-orchestrator:dev .
 minikube image load chaos-orchestrator:dev -p chaos-lab
-kubectl --context chaos-lab apply -f orchestrator/k8s/rbac.yaml -f orchestrator/k8s/pvc.yaml
-RUN_ID=r-$(date +%m%d%H%M)
-sed "s/__RUN_ID__/$RUN_ID/" orchestrator/k8s/job.yaml | kubectl --context chaos-lab apply -f -
-kubectl --context chaos-lab -n exchange logs -f job/chaos-run-$RUN_ID
+
+bash infra/local/run-scenario.sh pod-kill      # preflight → Job → 로그 → runs/<run_id>/로 결과 꺼냄
+bash infra/local/fetch-run.sh --list           # PVC에 남은 run 목록
+bash infra/local/fetch-run.sh r-1121093000     # 특정 run 다시 꺼내기
 ```
 
 5-b 확인: OBSERVING 중에 Pod를 지우고 대체 Pod 로그에 `result=ABORTED  cleanup=OK`가 나오는지,

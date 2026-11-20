@@ -157,7 +157,7 @@ else
   hint "bash infra/local/reset-db.sh -y  (출력 마지막 줄 accounts=$ACCOUNTS 확인)"
   if psql_q "SELECT to_regclass('order_external') IS NOT NULL" | grep -q t; then
     pend="$(psql_q "SELECT count(*) FROM orders JOIN order_external USING(client_order_id) WHERE status IN ('pending','unknown')")"
-    [ "${pend:-0}" != "0" ] && hint "미정산 외부 주문 ${pend}건 때문에 reset-db.sh가 거부할 수 있음 (reset-db --force는 A 작업 중)"
+    [ "${pend:-0}" != "0" ] && hint "미정산 외부 주문 ${pend}건 때문에 reset-db.sh가 거부함 → 이전 run 결과를 꺼냈으면 bash infra/local/reset-db.sh -y --force"
   fi
 fi
 read -r n_acc n_diff <<<"$(psql_q "SELECT count(*), count(*) FILTER (WHERE krw <> $INITIAL_KRW) FROM accounts")"
@@ -256,4 +256,4 @@ if [ "$fail" -gt 0 ]; then
   echo "FAIL을 고친 뒤 다시 점검하세요. 이 상태로 돌린 run은 판정에 이전 run이 섞이거나 설정이 다를 수 있습니다."
   exit 1
 fi
-echo "시작해도 됩니다: run_scenario $SCENARIO  (실행 후 이 점검 결과 파일을 run 결과와 함께 보관)"
+echo "시작해도 됩니다: bash infra/local/run-scenario.sh $SCENARIO  (실행 후 이 점검 결과 파일을 run 결과와 함께 보관)"
