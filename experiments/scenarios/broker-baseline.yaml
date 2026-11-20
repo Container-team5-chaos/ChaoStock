@@ -7,6 +7,8 @@
 # faults가 비어 있어도 실행기는 warmup → observe → recover를 그대로 진행한다.
 # drain은 넣지 않는다 (장애 구간이 없어 결과가 항상 INCONCLUSIVE(drain_unobserved)가 됨)
 name: broker-baseline
+# 주문 모드(w4 6번): adapter. broker 시나리오와 같은 조건이어야 비교가 된다. infra/local/preflight.sh가 클러스터 설정과 맞는지 검사한다.
+order_mode: adapter
 durations:   # 초. 합계 420 = broker 시나리오의 k6 부하 시간
   warmup: 30
   observe: 360

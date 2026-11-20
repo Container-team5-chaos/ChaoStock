@@ -8,6 +8,8 @@
 #
 # 대상 라벨·보호 조건은 broker-delay.yaml과 같다.
 name: broker-partition
+# 주문 모드(w4 6번): adapter = 주문 서비스 → adapter → mock-broker. 실행기는 읽지 않고, infra/local/preflight.sh가 클러스터 설정과 맞는지 검사한다.
+order_mode: adapter
 durations:   # 초
   warmup: 30
   observe: 30
