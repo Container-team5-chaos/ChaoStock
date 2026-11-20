@@ -8,17 +8,22 @@
 #
 # 대상 라벨·보호 조건은 broker-delay.yaml과 같다.
 name: broker-partition
+# 주문 모드(w4 6번): adapter = 주문 서비스 → adapter → mock-broker. 실행기는 adapter면 시작 게이트에서 adapter /readyz를 확인하고(#50), infra/local/preflight.sh가 클러스터 설정과 맞는지 검사한다.
+order_mode: adapter
+# 판정 기준 구간에 맞춘 시간 (pod-kill과 같음, docs/results/2026-11-17-broker-load.md 다음 단계)
+#   warmup 215 ≥ 판정 warmup 60 + baseline 150 + guard 2  → baseline 약 120건 (broker.yaml min_filled 60)
+#   recover 185 ≥ 장애 후 여유 60 + tail 120
 durations:   # 초
-  warmup: 30
-  observe: 30
-  recover: 60
+  warmup: 215
+  observe: 30   # 리허설에서 unknown 0 (재시도 한도 안). 늘리지 않는다
+  recover: 185
 
-# 4번(adapter 부하): 0.8건/s는 후보값. broker-baseline.yaml 리허설로 확정한다
+# 4번(adapter 부하): 0.8건/s (리허설로 확정)
 load:
   profile: steady
-  rate: 0.8         # 후보값
-  duration_s: 420   # warmup + observe + recover + drain.timeout_s
-  accounts: 300
+  rate: 0.8
+  duration_s: 730   # warmup + observe + recover + drain.timeout_s
+  accounts: 30      # 매도 체결과 정산 순서 역전을 만들기 위해 계좌를 줄인다 (broker-delay.yaml 설명 참고)
 faults:
   - kind: NetworkChaos
     spec:
