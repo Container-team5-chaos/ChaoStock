@@ -380,7 +380,7 @@ def test_apply_network_fault_sends_safety_on_both_sides():
 def test_scenario_files_pass_fault_check(path):
     """experiments/scenarios의 모든 장애가 주입 전 검사를 통과한다."""
     scenario = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert scenario["faults"], "faults가 비어 있음"
+    assert isinstance(scenario.get("faults"), list), "faults는 목록이어야 함"
     for fault in scenario["faults"]:
         check_fault(fault)
 
