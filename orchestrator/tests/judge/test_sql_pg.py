@@ -39,6 +39,7 @@ from orchestrator.judge.model import (
     FINGERPRINT_COLUMNS,
     ORDER_COLUMNS,
     POSITION_COLUMNS,
+    SETTLE_SEQ_COLUMN,
     SNAPSHOT_SECTIONS,
     TICK_COLUMNS,
     DbTarget,
@@ -349,7 +350,7 @@ def test_section_headers_match_model_columns(fresh_db):
     headers = dict(re.findall(r"^--@ (\S+)\n([^\n]*)\n", run.stdout, re.M))
     assert headers["accounts"] == ",".join(ACCOUNT_COLUMNS)
     assert headers["positions"] == ",".join(POSITION_COLUMNS)
-    assert headers["orders"] == ",".join(ORDER_COLUMNS)
+    assert headers["orders"] == ",".join((*ORDER_COLUMNS, SETTLE_SEQ_COLUMN))
     assert headers["ticks"] == ",".join(TICK_COLUMNS)
     assert headers["schema"] == ",".join(D.SCHEMA_COLUMNS)
     assert (
@@ -538,14 +539,19 @@ def test_missing_ticks_table_gives_empty_ticks_section(fresh_db):
     assert res["constraints"].violations == 0  # ticks는 constraints 대상이 아니다
 
 
-def test_settle_seq_column_is_read_only_when_present(fresh_db):
-    """열이 없는 DB(나머지 테스트)는 그대로 읽고, 열을 넣은 DB에서는 값도 읽는다."""
-    _psql(
-        "ALTER TABLE orders ADD COLUMN settle_seq BIGINT;\nUPDATE orders SET settle_seq = 1000 - id;"
-    )
+def test_settle_seq_values_are_read(fresh_db):
+    _psql("UPDATE orders SET settle_seq = 1000 - id;")
     run, snap = _snapshot()
     assert run.returncode == 0
     assert snap.orders and all(o.settle_seq == 1000 - o.id for o in snap.orders)
+
+
+def test_db_without_settle_seq_column_is_still_read(fresh_db):
+    """주문 서비스가 열을 추가하기 전에 만든 DB."""
+    _psql("ALTER TABLE orders DROP COLUMN settle_seq;")
+    run, snap = _snapshot()
+    assert run.returncode == 0
+    assert snap.orders and all(o.settle_seq is None for o in snap.orders)
 
 
 def test_missing_column_stops_psql_but_keeps_schema_evidence(fresh_db):
