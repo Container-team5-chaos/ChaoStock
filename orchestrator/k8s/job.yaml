@@ -1,5 +1,6 @@
-# 실험 1회 = Job 1개. RUN_ID를 바꿔서 적용한다.
-#   sed "s/__RUN_ID__/r-$(date +%m%d%H%M)/" orchestrator/k8s/job.yaml | kubectl apply -f -
+# 실험 1회 = Job 1개. 보통은 infra/local/run-scenario.sh <시나리오>로 띄운다 (docs/operations.md).
+# 직접 띄울 때: RUN_ID와 시나리오 이름을 바꿔서 적용한다.
+#   sed -e "s/__RUN_ID__/r-$(date +%m%d%H%M)/" -e "s/__SCENARIO__/pod-kill/" orchestrator/k8s/job.yaml | kubectl apply -f -
 #
 # 실험이 결과를 냈으면(FAILED 포함) 종료 코드 0으로 끝나 Job이 재시도하지 않는다.
 # 실행기 자체가 죽었을 때만 0이 아니고, 그때 Job이 같은 RUN_ID로 대체 Pod를 띄운다.
@@ -33,7 +34,7 @@ spec:
             - --runs-dir=/var/lib/orchestrator/runs
             - --exit-zero-on-result
             - run
-            - /app/experiments/scenarios/pod-kill.yaml
+            - /app/experiments/scenarios/__SCENARIO__.yaml
             - --run-id=__RUN_ID__
           volumeMounts:
             - name: state

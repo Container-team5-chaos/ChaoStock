@@ -2,9 +2,13 @@
 # 실험 시작 전 DB 초기화: 주문·포지션·계좌를 비우고 테스트 사용자 1,000명에게 1,000만 원씩 다시 지급
 # (B의 정합성 검사: 보낸 주문 ID와 DB 대조, 잔고 불변식 → 깨끗한 시작 상태가 기준)
 #
-# 사용법: infra/local/reset-db.sh [-y]
-#   -y  확인 질문 없이 실행
-# 실험 중(Chaos 리소스나 실행 중인 k6 Job이 있음)이면 판정이 깨지므로 실행하지 않는다.
+# 사용법: infra/local/reset-db.sh [-y] [--force]
+#   -y       확인 질문 없이 실행
+#   --force  정산이 안 끝난 외부 주문(pending·unknown)이 남아 있어도 버리고 초기화한다.
+#            이전 run 결과를 먼저 꺼낸 뒤에만 쓴다 (docs/operations.md 1번).
+# 실험 중(Chaos 리소스나 실행 중인 k6 Job이 있음)이면 --force여도 실행하지 않는다.
+# adapter 대기열(adapter_orders)과 mock 증권사 기록(mock_broker_orders)도 함께 비운다.
+#   (남아 있으면 drain의 평소 수준이 부풀고, worker가 지워진 주문을 계속 재시도한다)
 set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-chaos-lab}"
@@ -18,7 +22,14 @@ k() { kubectl --context "$CONTEXT" "$@"; }
 psql_exec() { k -n exchange exec -i statefulset/postgres -- psql -v ON_ERROR_STOP=1 -U exchange -d exchange "$@"; }
 
 YES=0
-[ "${1:-}" = "-y" ] && YES=1
+FORCE=0
+for arg in "$@"; do
+  case "$arg" in
+    -y) YES=1 ;;
+    --force) FORCE=1 ;;
+    *) echo "모르는 옵션: $arg (사용법: $0 [-y] [--force])" >&2; exit 2 ;;
+  esac
+done
 
 # 실험 진행 중이면 거부
 chaos="$(k get podchaos,networkchaos -A -l "$LABEL_KEY" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
@@ -34,13 +45,17 @@ external_table="$(psql_exec -tAc "SELECT to_regclass('order_external') IS NOT NU
 if [ "$external_table" = "t" ]; then
   pending="$(psql_exec -tAc "SELECT count(*) FROM orders JOIN order_external USING(client_order_id) WHERE status IN ('pending','unknown')" | tr -d '\r[:space:]')"
   if [ "$pending" != "0" ]; then
-    echo "미확정 외부 주문 ${pending}건이 있어 초기화를 중단합니다. 체결/예약 상태를 먼저 확인하세요." >&2
-    exit 1
+    if [ "$FORCE" -ne 1 ]; then
+      echo "미확정 외부 주문 ${pending}건이 있어 초기화를 중단합니다. 체결/예약 상태를 먼저 확인하세요." >&2
+      echo "이전 run 결과를 꺼냈고 버려도 되면: $0 -y --force" >&2
+      exit 1
+    fi
+    echo "--force: 미확정 외부 주문 ${pending}건을 버리고 초기화합니다."
   fi
 fi
 
 if [ "$YES" -ne 1 ]; then
-  read -r -p "[$CONTEXT] 주문·포지션·계좌를 모두 지우고 다시 채웁니다. 계속할까요? [y/N] " answer
+  read -r -p "[$CONTEXT] 주문·포지션·계좌와 adapter·mock 증권사 기록을 모두 지우고 다시 채웁니다. 계속할까요? [y/N] " answer
   [ "$answer" = "y" ] || [ "$answer" = "Y" ] || { echo "취소"; exit 0; }
 fi
 
@@ -51,4 +66,12 @@ if [ "$exists" != "t" ]; then
 fi
 
 psql_exec <"$SEED_SQL"
+
+# adapter·mock 증권사 테이블은 orders와 FK로 묶여 있지 않아 seed.sql의 TRUNCATE로 지워지지 않는다.
+for table in adapter_orders mock_broker_orders; do
+  if [ "$(psql_exec -tAc "SELECT to_regclass('$table') IS NOT NULL" | tr -d '\r[:space:]')" = "t" ]; then
+    psql_exec -c "TRUNCATE $table" >/dev/null
+    echo "$table 비움"
+  fi
+done
 psql_exec -tAc "SELECT 'accounts=' || count(*) FROM accounts"
