@@ -8,7 +8,7 @@
 #
 # 대상 라벨·보호 조건은 broker-delay.yaml과 같다.
 name: broker-partition
-# 주문 모드(w4 6번): adapter = 주문 서비스 → adapter → mock-broker. 실행기는 읽지 않고, infra/local/preflight.sh가 클러스터 설정과 맞는지 검사한다.
+# 주문 모드(w4 6번): adapter = 주문 서비스 → adapter → mock-broker. 실행기는 adapter면 시작 게이트에서 adapter /readyz를 확인하고(#50), infra/local/preflight.sh가 클러스터 설정과 맞는지 검사한다.
 order_mode: adapter
 # 판정 기준 구간에 맞춘 시간 (pod-kill과 같음, docs/results/2026-11-17-broker-load.md 다음 단계)
 #   warmup 215 ≥ 판정 warmup 60 + baseline 150 + guard 2  → baseline 약 120건 (broker.yaml min_filled 60)

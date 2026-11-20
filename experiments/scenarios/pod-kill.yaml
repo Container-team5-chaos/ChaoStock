@@ -2,7 +2,7 @@
   # 1. Pod가 실제로 교체되는지
   # 2. 교체 후 주문 처리가 회복되는지를 본다. (w4 3번)
 name: pod-kill
-# 주문 모드(w4 6번): baseline = 기본(즉시 체결). 실행기는 읽지 않고, infra/local/preflight.sh가 클러스터 설정과 맞는지 검사한다.
+# 주문 모드(w4 6번): baseline = 기본(즉시 체결). 실행기는 baseline이면 adapter 게이트를 건너뛰고(#50), infra/local/preflight.sh가 클러스터 설정과 맞는지 검사한다.
 # 기본 부하(30건/s)는 adapter 모드 정산 처리량보다 커서 adapter 모드에서는 돌리지 않는다
 order_mode: baseline
 # 판정 기준(default.yaml) 구간에 맞춘 시간
