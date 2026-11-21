@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chaostock-config
+data:
+  index.html: |-
+{{ .Files.Get "files/index.html" | indent 4 }}
+  nginx.conf: |-
+{{ tpl (.Files.Get "files/nginx.conf") . | indent 4 }}
+  schema.sql: |-
+{{ .Files.Get "files/schema.sql" | indent 4 }}
+  seed.sql: |-
+{{ .Files.Get "files/seed.sql" | indent 4 }}

@@ -1,0 +1,94 @@
+# ChaoStock EKS Demo
+# Namespace: helm install 시 --namespace로 지정
+
+images:
+  nginx:
+    repository: nginx/nginx-unprivileged
+    tag: "1.30.7-alpine"
+  order:
+    repository: ghcr.io/container-team5-chaos/chaostock-order
+    tag: "eks-v1"
+  push:
+    repository: ghcr.io/container-team5-chaos/chaostock-push-server
+    tag: "eks-v1"
+  redis:
+    repository: redis
+    tag: "7-alpine"
+  postgres:
+    repository: postgres
+    tag: "16-alpine"
+
+ports:
+  web: 8080
+  order: 8000
+  push: 8081
+  redis: 6379
+  postgres: 5432
+
+order:
+  replicas: 1
+  staleMs: "5000"
+  dbPoolSize: "5"
+  adapterUrl: ""
+
+priceStub:
+  market: KRW-BTC
+  startPrice: "95000000"
+
+database:
+  secretName: chaostock-db
+  storageSize: 1Gi
+
+ingress:
+  enabled: true
+  className: alb
+
+# 모든 컨테이너에 requests / limits 명시
+resources:
+  nginx:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 50m
+      memory: 64Mi
+
+  push:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+  order:
+    requests:
+      cpu: 70m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+  redis:
+    requests:
+      cpu: 30m
+      memory: 64Mi
+    limits:
+      cpu: 150m
+      memory: 128Mi
+
+  priceStub:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 50m
+      memory: 64Mi
+
+  postgres:
+    requests:
+      cpu: 70m
+      memory: 192Mi
+    limits:
+      cpu: 250m
+      memory: 384Mi
