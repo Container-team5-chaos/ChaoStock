@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: order
+spec:
+  type: ClusterIP
+  selector:
+    app: order
+  ports:
+    - name: http
+      port: {{ .Values.ports.order }}
+      targetPort: http
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order
+spec:
+  replicas: {{ .Values.order.replicas }}
+
+  # 제한된 EKS 쿼터에서 업데이트 시 Pod 중복 방지
+  strategy:
+    type: Recreate
+
+  selector:
+    matchLabels:
+      app: order
+
+  template:
+    metadata:
+      labels:
+        app: order
+
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 40
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: order
+          image: "{{ .Values.images.order.repository }}:{{ .Values.images.order.tag }}"
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.ports.order }}
+
+          env:
+            - name: PORT
+              value: {{ .Values.ports.order | quote }}
+
+            # DB 인증 정보는 외부 Secret에서 가져옴
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secretName }}
+                  key: POSTGRES_USER
+
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secretName }}
+                  key: POSTGRES_PASSWORD
+
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secretName }}
+                  key: POSTGRES_DB
+
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:{{ .Values.ports.postgres }}/$(POSTGRES_DB)"
+
+            - name: REDIS_URL
+              value: "redis://redis:{{ .Values.ports.redis }}/0"
+
+            - name: STALE_MS
+              value: {{ .Values.order.staleMs | quote }}
+
+            - name: DB_POOL_SIZE
+              value: {{ .Values.order.dbPoolSize | quote }}
+
+            # EKS에서는 즉시 체결 모드
+            - name: ADAPTER_URL
+              value: {{ .Values.order.adapterUrl | quote }}
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 2
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+
+          resources:
+            {{- toYaml .Values.resources.order | nindent 12 }}
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
