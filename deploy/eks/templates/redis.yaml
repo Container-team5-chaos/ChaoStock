@@ -97,9 +97,12 @@ spec:
                 # Redis 서버 시각으로 밀리초 타임스탬프 생성
                 ts=$(( $1 * 1000 + $2 / 1000 ))
 
-                # 약 ±0.1% 범위의 가상 시세 생성
-                price="$(awk -v p="$price" -v seed="$1" \
-                  'BEGIN { srand(seed); printf "%.0f", p * (1 + (rand() - 0.5) / 500) }')"
+                # 매초 운영체제 난수에서 독립적인 값 추출
+                random_number="$(od -An -N4 -tu4 /dev/urandom | tr -d '[:space:]')"
+
+                # 약 ±0.1% 범위의 가상 시세 변동
+                price="$(awk -v p="$price" -v r="$random_number" \
+                  'BEGIN { printf "%.0f", p * (1 + (r / 4294967295.0 - 0.5) / 500) }')"
 
                 value="{\"price\":\"$price\",\"ts\":$ts,\"source\":\"stub\"}"
 
