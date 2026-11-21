@@ -4,8 +4,11 @@
 이전 주문 3,749건이 섞여 판정된 무효 run이 나왔다. 그 재발을 막는 것이 이 문서의 목적이다.
 
 ```
-이전 결과 꺼내기 → DB 초기화 → (코드를 바꿨으면) 실행기 이미지 다시 넣기 → 점검 → 실행 → 결과 꺼내기
+이전 결과 꺼내기 → (시나리오 주문 모드가 다르면) 주문 모드 맞추기 → DB 초기화 → (코드를 바꿨으면) 실행기 이미지 다시 넣기 → 점검 → 실행 → 결과 꺼내기
 ```
+
+11/21 리허설로 이 순서대로 run 두 번(broker-delay → pod-kill, 주문 모드 전환 포함)이 끊김 없이 도는 것을 확인했다
+([`docs/results/2026-11-21-operations-rehearsal.md`](results/2026-11-21-operations-rehearsal.md)).
 
 ## 어디서 무엇이 도나
 
@@ -29,6 +32,31 @@ bash infra/local/fetch-run.sh r-1121093000    # → runs/r-1121093000/
 ```
 
 `run-scenario.sh`로 돌렸으면 끝날 때 자동으로 꺼내져 있다.
+
+결과를 꺼냈으면 끝난 실행기·k6 Job은 지워도 된다. 남겨 두면 run마다 쌓여 `preflight.sh`가 WARN을 낸다.
+
+```bash
+kubectl --context chaos-lab -n exchange get jobs -o name | grep -E 'job.batch/(k6-|chaos-run-)' \
+  | xargs -r kubectl --context chaos-lab -n exchange delete
+```
+
+## 1-1. 주문 모드 맞추기 (다음 시나리오의 주문 모드가 다를 때)
+
+시나리오마다 주문 모드가 정해져 있다(`order_mode`). pod-kill은 기본(즉시 체결) 모드의 30건/s 부하라 adapter 모드에서는 정산이 밀리고,
+broker 시나리오는 adapter 모드여야 증권사 장애가 주문에 닿는다. 모드가 다르면 `preflight.sh`가 FAIL로 막는다.
+
+| 시나리오 | `order_mode` | 주문 서비스 배포 |
+|---|---|---|
+| `pod-kill` | baseline | `bash workloads/order/deploy-local.sh` |
+| `broker-delay`, `broker-partition`, `broker-baseline` | adapter | `bash workloads/order/deploy-local.sh -f workloads/order/chart/values-adapter.yaml` |
+
+```bash
+grep '^order_mode' experiments/scenarios/<시나리오>.yaml      # 다음 시나리오의 모드
+kubectl --context chaos-lab -n exchange get deploy order \
+  -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ADAPTER_URL")].value}'; echo   # 비어 있으면 baseline
+```
+
+모드를 바꾼 뒤에는 2번(DB 초기화)부터 이어서 한다.
 
 ## 2. DB 초기화
 
@@ -89,3 +117,4 @@ bash infra/local/run-scenario.sh broker-delay
 | `previous_cleanup: 이전 run ... 정리 미완료` | 직전 run의 장애 정리 실패 | `bash infra/local/recover.sh` (정리를 다시 시도한다) |
 | `no_leftover_chaos: 남은 Chaos [...]` | `chaos/run-id` 라벨이 붙은 Chaos 리소스가 남음 | 지운 뒤 다시 실행 |
 | `order_ready` / `adapter_ready` / `price_fresh` / `prometheus` | 서비스·시세·관측이 준비 안 됨 | `preflight.sh`의 해당 항목 안내대로 |
+| `preflight FAIL — 시작하지 않습니다.` + `주문 모드 불일치` | 시나리오 `order_mode`와 클러스터 주문 모드가 다름 | 1-1번으로 모드를 맞추고 2번부터 다시 |
