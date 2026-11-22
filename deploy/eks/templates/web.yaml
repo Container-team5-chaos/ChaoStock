@@ -1,0 +1,144 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  type: ClusterIP
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 1
+
+  # EKS 리소스 쿼터 초과 방지
+  strategy:
+    type: Recreate
+
+  selector:
+    matchLabels:
+      app: web
+
+  template:
+    metadata:
+      labels:
+        app: web
+      annotations:
+        # HTML / Nginx 설정이 변경되면 Pod 재생성
+        checksum/config: {{ printf "%s\n%s" (.Files.Get "files/index.html") (tpl (.Files.Get "files/nginx.conf") .) | sha256sum }}
+
+    spec:
+      automountServiceAccountToken: false
+
+      containers:
+        # 1. Nginx
+        - name: nginx
+          image: "{{ .Values.images.nginx.repository }}:{{ .Values.images.nginx.tag }}"
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.ports.web }}
+
+          readinessProbe:
+            httpGet:
+              path: /{{ .Release.Namespace }}/health
+              port: http
+            periodSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /{{ .Release.Namespace }}/health
+              port: http
+            periodSeconds: 10
+
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+
+          resources:
+            {{- toYaml .Values.resources.nginx | nindent 12 }}
+
+          volumeMounts:
+            - name: web-config
+              mountPath: /usr/share/nginx/html/index.html
+              subPath: index.html
+              readOnly: true
+
+            - name: web-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: nginx.conf
+              readOnly: true
+
+        # 2. Push Server
+        - name: push-server
+          image: "{{ .Values.images.push.repository }}:{{ .Values.images.push.tag }}"
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: push
+              containerPort: {{ .Values.ports.push }}
+
+          env:
+            - name: PORT
+              value: {{ .Values.ports.push | quote }}
+
+            - name: REDIS_URL
+              value: "redis://redis:{{ .Values.ports.redis }}/0"
+
+            - name: MARKET
+              value: {{ .Values.priceStub.market | quote }}
+
+            - name: STALE_MS
+              value: {{ .Values.order.staleMs | quote }}
+
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: push
+            periodSeconds: 5
+            failureThreshold: 30
+
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: push
+            periodSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: push
+            periodSeconds: 10
+            failureThreshold: 3
+
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          resources:
+            {{- toYaml .Values.resources.push | nindent 12 }}
+
+      volumes:
+        - name: web-config
+          configMap:
+            name: chaostock-config
+            items:
+              - key: index.html
+                path: index.html
+              - key: nginx.conf
+                path: nginx.conf
