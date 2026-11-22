@@ -1,0 +1,12 @@
+# EKS overrides for ChaoStock; deploy with -f deploy/eks/values-eks.yaml.
+# The four ALB annotations are defined in templates/ingress.yaml already.
+images:
+  order:
+    repository: ghcr.io/container-team5-chaos/chaostock-order
+    tag: "1.0.0"
+  push:
+    repository: ghcr.io/container-team5-chaos/chaostock-push-server
+    tag: "1.0.0"
+ingress:
+  enabled: true
+  className: alb
