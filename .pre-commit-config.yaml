@@ -20,3 +20,12 @@ repos:
       - id: conventional-pre-commit
         stages: [commit-msg]
         args: [feat, fix, refactor, test, docs, infra, chore, ci]
+  - repo: local
+    hooks:
+      # EKS 데모 차트(deploy/eks/files)의 사본이 원본(web/, workloads/order/db/)과 같은지 (scripts/check-eks-copies.sh)
+      - id: eks-copies
+        name: EKS 차트 사본 = 원본
+        entry: bash scripts/check-eks-copies.sh
+        language: system
+        pass_filenames: false
+        files: ^(web/index\.html|workloads/order/db/(schema|seed)\.sql|deploy/eks/files/.*)$
