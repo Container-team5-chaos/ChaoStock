@@ -221,6 +221,7 @@
 <script>
 "use strict";
 const MARKET = "KRW-BTC";
+const BASE_PATH = location.pathname.match(/^\/container-\d+(?=\/|$)/)?.[0] || "";
 const STALE_MS = 5000;           // 주문 서비스 STALE_MS 기본값과 같음
 const CHART_POINTS = 300;        // 약 5분 (1초 간격)
 
@@ -265,7 +266,7 @@ $("user").addEventListener("change", () => {
 let retry = 0;
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/ws?market=${encodeURIComponent(MARKET)}`);
+  const ws = new WebSocket(`${proto}://${location.host}${BASE_PATH}/ws?market=${encodeURIComponent(MARKET)}`);
   setLink("wait", "시세 연결 중");
   const connectTimer = setTimeout(() => ws.close(), 10000);
   ws.onopen = () => {
@@ -456,7 +457,7 @@ async function send(order) {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
-    res = await fetch("/api/orders", {
+    res = await fetch(`${BASE_PATH}/api/orders`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(order), signal: ctrl.signal,
     });
@@ -532,7 +533,7 @@ async function watch(label, id) {
       await new Promise((r) => setTimeout(r, wait));
       let o = null;
       try {
-        const res = await fetch(`/api/orders/${encodeURIComponent(id)}`, { cache: "no-store" });
+        const res = await fetch(`${BASE_PATH}/api/orders/${encodeURIComponent(id)}`, { cache: "no-store" });
         if (res.ok) o = await res.json();
       } catch (e) { /* 일시 단절이면 다음 확인에서 다시 */ }
       if (o && o.status !== "pending") { settle(label, o); return; }
@@ -581,7 +582,7 @@ const PRICE_STATUS = {
 async function loadAccount() {
   const user = userId();
   try {
-    const res = await fetch(`/api/accounts/${user}/positions`, { cache: "no-store" });
+    const res = await fetch(`${BASE_PATH}/api/accounts/${user}/positions`, { cache: "no-store" });
     if (user !== userId()) return;  // 응답이 오는 사이 사용자를 바꾼 경우
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
