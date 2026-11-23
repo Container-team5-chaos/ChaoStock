@@ -11,6 +11,9 @@ images:
   push:
     repository: ghcr.io/container-team5-chaos/chaostock-push-server
     tag: "eks-v1"
+  collector:
+    repository: ghcr.io/container-team5-chaos/chaostock-collector
+    tag: "1.0.0"
   redis:
     repository: redis
     tag: "7-alpine"
@@ -92,3 +95,20 @@ resources:
     limits:
       cpu: 250m
       memory: 384Mi
+
+  # ResourceQuota accounts init-container separately: init <= main effective budget.
+  collectorInit:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+  collector:
+    requests:
+      cpu: 40m
+      memory: 64Mi
+    limits:
+      cpu: 150m
+      memory: 192Mi

@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collector
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: collector
+  template:
+    metadata:
+      labels:
+        app: collector
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: init-history
+          image: "{{ .Values.images.collector.repository }}:{{ .Values.images.collector.tag }}"
+          imagePullPolicy: IfNotPresent
+          command: ["python", "main.py", "init-db"]
+          envFrom:
+            - secretRef:
+                name: {{ .Values.database.secretName }}
+          env:
+            - name: PGHOST
+              value: "postgres"
+            - name: REDIS_URL
+              value: "redis://redis:{{ .Values.ports.redis }}/0"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.resources.collectorInit | nindent 12 }}
+      containers:
+        - name: collector
+          image: "{{ .Values.images.collector.repository }}:{{ .Values.images.collector.tag }}"
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: {{ .Values.database.secretName }}
+          env:
+            - name: PGHOST
+              value: "postgres"
+            - name: REDIS_URL
+              value: "redis://redis:{{ .Values.ports.redis }}/0"
+            - name: MARKET
+              value: {{ .Values.priceStub.market | quote }}
+            - name: MAX_SOURCE_AGE_MS
+              value: "5000"
+            - name: READY_MAX_AGE_MS
+              value: "5000"
+            - name: SHUTDOWN_SECONDS
+              value: "20"
+          readinessProbe:
+            exec:
+              command: ["python", "healthcheck.py"]
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.resources.collector | nindent 12 }}
+          volumeMounts:
+            - name: temporary
+              mountPath: /tmp
+      volumes:
+        - name: temporary
+          emptyDir: {}
