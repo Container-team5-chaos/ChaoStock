@@ -21,20 +21,23 @@ ChaoStock은 Kubernetes 기반 모의 거래 서비스에서 장애를 재현하
 
 실험은 k6 부하 생성, Chaos Mesh 장애 주입, 상태 관측, 복구, 결과 판정 순서로 진행한다. Orchestrator가 실행 단계를 관리하고, 주문 기록과 지표를 바탕으로 장애 영향을 판정한다.
 
-### AWS EKS Demo
+### AWS EKS
 
-![AWS EKS Demo Architecture](docs/images/eks-demo-architecture.png)
+![AWS EKS Architecture](docs/images/eks-architecture.png)
 
-AWS 서울 리전(`ap-northeast-2`)의 EKS `container-5` 네임스페이스에 배포한 경량 데모다. ALB와 Ingress를 통해 웹 서비스에 접근한다.
+AWS 서울 리전(`ap-northeast-2`)의 EKS `container-5` 네임스페이스에 배포하는 5-Pod 경량 데모다. ALB와 Ingress를 통해 웹 서비스에 접근한다.
 
 | 구성 | 역할 |
 | --- | --- |
 | Web Pod | Nginx 웹 화면과 WebSocket Push Server 실행 |
-| Order Pod | 주문 API 및 계좌·포지션 조회 |
-| Redis Pod | Price Stub을 통한 가상 시세 생성과 Redis 저장·발행 |
-| PostgreSQL StatefulSet | 주문·계좌 데이터 저장, PVC/EBS 기반 영속 스토리지 사용 |
+| Order Pod | 실시간 시세 기반 주문 처리 및 계좌·포지션 조회 |
+| Collector Pod | Upbit WebSocket 시세 수집 및 Redis·PostgreSQL 저장 |
+| Redis Pod | 실시간 시세 캐싱 및 Pub/Sub을 통한 가격 배포 |
+| PostgreSQL StatefulSet | 주문·계좌·시세 이력 저장, PVC/EBS 기반 영속 스토리지 사용 |
 
-Helm Chart로 서비스를 배포하며, 애플리케이션 이미지는 GHCR에서 가져온다. EKS는 접속·주문 흐름을 보여 주는 데모 환경으로, Chaos Mesh 기반 장애 실험과 자동 판정은 로컬 환경에서 수행한다.
+Collector가 Upbit에서 수신한 실시간 시세를 Redis와 PostgreSQL에 저장하며, Order 서비스는 Redis의 현재가를 기준으로 주문을 처리한다.
+
+Helm Chart로 서비스를 배포하며, 애플리케이션 이미지는 GHCR에서 가져온다. EKS는 실시간 시세 조회와 주문 흐름을 보여 주는 데모 환경으로, Chaos Mesh 기반 장애 실험과 자동 판정은 로컬 환경에서 수행한다.
 
 ## 주요 기능
 
